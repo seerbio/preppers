@@ -1,0 +1,8 @@
+[package]
+name = "preppers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+argh = "0.1.12"
+blart = "=0.3.0"
