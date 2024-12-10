@@ -18,10 +18,12 @@ pub fn slurp_file(input_file: PathBuf) -> Vec<u8> {
         .read_to_end(&mut contents)
         .expect("should be able to read entire file");
 
-    assert_eq!(
-        bytes_read, file_len,
-        "should have read entire file into memory"
-    );
+    if file_len > 0 {
+        assert_eq!(
+            bytes_read, file_len,
+            "should have read entire file into memory"
+        );
+    }
 
     contents
 }
