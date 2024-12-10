@@ -45,7 +45,7 @@ fn main() {
 
     let mut num_entries : u64 = 0;
     for entry in prots {
-        println!("{}: {} peptides", entry.header(), entry.peptides().len());
+        println!("{}: {} peptides -- {:?}", entry.header(), entry.peptides().len(), entry.peptides());
         // println!("{}: {} peptides", entry.header(), entry.sequence());
 
         num_entries += 1;
