@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 use std::ffi::CString;
 use std::path::PathBuf;
+use blart::{InnerNode, InnerNode16, InnerNode256, InnerNode4, InnerNode48, LeafNode, NodePtr, NodeType, OpaqueNodePtr, TreeMap};
+use blart::visitor::{Visitable, Visitor};
 use super::{PeptideId, PeptideTrie};
 use super::io::slurp_file;
 
@@ -11,19 +13,20 @@ pub fn read_fasta(fasta_path: PathBuf) -> impl Iterator<Item: FastaEntry> {
     }
 }
 
-pub fn annotate_fasta<'a>(fasta_path: PathBuf, peptides: &'a PeptideTrie) -> impl Iterator<Item=PreppedFastaEntry> + use <'a> {
-    annotate_iter(read_fasta(fasta_path), peptides)
+pub fn annotate_fasta(fasta_path: PathBuf, peptides: PeptideTrie) -> impl Iterator<Item=PreppedFastaEntry> {
+    annotate_iter(read_fasta(fasta_path), TreeMap::into_raw(peptides._tree).unwrap())
 }
 
-fn annotate_iter<'a, T: Iterator<Item: FastaEntry>>(iter: T, peptides: &'a PeptideTrie) -> impl Iterator<Item=PreppedFastaEntry> + use <'a, T> {
+fn annotate_iter<T: Iterator<Item: FastaEntry>, const N: usize>(iter: T, peptides: OpaqueNodePtr<CString, PeptideId, N>) -> impl Iterator<Item=PreppedFastaEntry> {
     iter.map(
-        |entry| annotate(&entry, peptides)
+        move |entry| annotate(&entry, &peptides)
     )
 }
 
-fn annotate<'a>(entry: &impl FastaEntry, peptides: &'a PeptideTrie) -> PreppedFastaEntry {
+fn annotate<'a, const N: usize>(entry: &impl FastaEntry, peptides: &'a OpaqueNodePtr<CString, PeptideId, N>) -> PreppedFastaEntry {
     let seq = entry.sequence().to_owned();
-    let peps = get_peptides_for_sequence(&seq, peptides);
+    let peps = get_peptides_for_sequence(&seq, &peptides);
+
     PreppedFastaEntry{
         header: entry.header().to_owned(),
         sequence: seq,
@@ -31,70 +34,122 @@ fn annotate<'a>(entry: &impl FastaEntry, peptides: &'a PeptideTrie) -> PreppedFa
     }
 }
 
-const MIN_PFX: usize = 5;
-
-fn get_peptides_for_sequence(seq: &String, peptides: &PeptideTrie) -> Vec<PeptideId> {
-    let (first_key, _) = peptides._tree.first_key_value().unwrap();
-    let (last_key, _) = peptides._tree.last_key_value().unwrap();
-
-    let mut state = BTreeSet::<usize>::new();
+fn get_peptides_for_sequence<const N: usize>(seq: &String, peptides: &OpaqueNodePtr<CString, PeptideId, N>) -> Vec<PeptideId> {
     let mut res = Vec::new();
 
-    for i in 0..seq.len() - MIN_PFX {
-        let pfx = &seq[i..i + MIN_PFX];
-
-        // let res: Vec<_> = map.prefix(pfx.as_bytes()).collect();
-        // println!("{i}: {pfx} -- {res:?}");
-
-        // Due to the implementation of prefix() we must check
-        // the prefix is within the range of values in the tree;
-        // if it's outside we instead get the full set of keys!!
-        let is_inrange = pfx.as_bytes() >= first_key.as_bytes() && pfx.as_bytes() <= last_key.as_bytes();
-
-        // let peps: Vec<_> = match is_inrange {
-        //     true => peptides._tree.prefix(pfx.as_bytes())
-        //         // This filter is required if the prefix is outside the tree's bounds?
-        //         //.filter(|(k, _)| k.to_bytes()[0..MIN_PFX] == *pfx.as_bytes())
-        //         .collect(),
-        //     _ => Vec::new(),
-        // };
-        // println!("{i}: {pfx} {is_inrange} -- {peps:?}");
-        //
-        // if peps.iter().any(|(k, _)| k.to_bytes()[0..MIN_PFX] != *pfx.as_bytes()) {
-        //     panic!("Some returned values had wrong prefix! Prefix: {pfx}; Result: {peps:?}")
-        // }
-
-        if is_inrange && peptides._tree.prefix(pfx.as_bytes()).next().is_some() {
-            // This prefix has at least one peptide, so we will keep checking it
-            state.insert(i);
-        }
-
-        // Check for peptides ending at this index
-        let mut to_rm = Vec::new();
-        for start in &state {
-            let putseq = &seq[*start..i];
-
-            let prefix = peptides._tree.prefix(putseq.as_bytes());
-            let mut n = 0;
-            for (pep, id) in prefix {
-                n += 1;
-
-                if pep.as_bytes() == putseq.as_bytes() {
-                    // We found a peptide; add it to the result
-                    res.push(*id);
-                }
-            }
-            if n == 0 {
-                to_rm.push(*start);
-            }
-        }
-
-        for start in to_rm {
-            state.remove(&start);
-        }
+    for i in 0..seq.len() {
+        peptides.visit_with(&mut ProteinSequenceVisitor::new(seq.as_bytes(), i, &mut res));
     }
 
     res
+}
+
+struct ProteinSequenceVisitor<'a> {
+    seq: &'a [u8],
+    start: usize,
+    res: &'a mut Vec<PeptideId>,
+    idx: usize,
+}
+
+impl<'a> ProteinSequenceVisitor<'a> {
+    fn new(seq: &'a [u8], start: usize, res: &'a mut Vec<PeptideId>) -> ProteinSequenceVisitor<'a> {
+        ProteinSequenceVisitor { seq, start, res, idx: 0, }
+    }
+}
+
+impl<const N: usize> Visitor<CString, PeptideId, N> for ProteinSequenceVisitor<'_> {
+    type Output=();
+
+    fn default_output(&self) -> Self::Output { }
+
+    fn combine_output(&self, o1: Self::Output, o2: Self::Output) -> Self::Output { }
+
+    fn visit_node4(&mut self, t: &InnerNode4<CString, PeptideId, N>) -> Self::Output {
+        if self.start + self.idx >= self.seq.len() {
+            return ()
+        }
+
+        let next = t.lookup_child(self.seq[self.idx]);
+
+        next.map(|n|
+            n.visit_with(
+                &mut ProteinSequenceVisitor {
+                    seq: self.seq,
+                    start: self.start,
+                    res: self.res,
+                    idx: self.idx + 1,
+                }
+            )
+        );
+    }
+
+    fn visit_node16(&mut self, t: &InnerNode16<CString, PeptideId, N>) -> Self::Output {
+        if self.start + self.idx >= self.seq.len() {
+            return ()
+        }
+
+        let next = t.lookup_child(self.seq[self.idx]);
+
+        next.map(|n|
+            n.visit_with(
+                &mut ProteinSequenceVisitor {
+                    seq: self.seq,
+                    start: self.start,
+                    res: self.res,
+                    idx: self.idx + 1,
+                }
+            )
+        );
+    }
+
+    fn visit_node48(&mut self, t: &InnerNode48<CString, PeptideId, N>) -> Self::Output {
+        if self.start + self.idx >= self.seq.len() {
+            return ()
+        }
+
+        let next = t.lookup_child(self.seq[self.idx]);
+
+        next.map(|n|
+            n.visit_with(
+                &mut ProteinSequenceVisitor {
+                    seq: self.seq,
+                    start: self.start,
+                    res: self.res,
+                    idx: self.idx + 1,
+                }
+            )
+        );
+    }
+
+    fn visit_node256(&mut self, t: &InnerNode256<CString, PeptideId, N>) -> Self::Output {
+        if self.start + self.idx >= self.seq.len() {
+            return ()
+        }
+
+        let next = t.lookup_child(self.seq[self.idx]);
+
+        next.map(|n|
+            n.visit_with(
+                &mut ProteinSequenceVisitor {
+                    seq: self.seq,
+                    start: self.start,
+                    res: self.res,
+                    idx: self.idx + 1,
+                }
+            )
+        );
+
+    }
+
+    fn visit_leaf(&mut self, t: &LeafNode<CString, PeptideId, N>) -> Self::Output {
+        let seq = &self.seq[self.start..self.start + self.idx - 1];
+
+        if t.matches_full_key(seq) {
+            self.res.push(*t.value_ref());
+        } else {
+            println!("Leaf mismatch! Reached {:?} with {:?}", t.key_ref(), String::from_utf8(seq.to_vec()).unwrap());
+        }
+    }
 }
 
 struct FastaIterator {
