@@ -200,15 +200,16 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: N
     let inner_node = unsafe { t.as_ref() };
 
     let key = inner_node.key_ref();
+    let key_bytes = key.as_bytes_with_nul();
 
     let mut i = 0;
     while i < seq.len() {
-        if key.as_bytes_with_nul()[i] == b'\0' {
+        if key_bytes[i] == b'\0' {
             // All bytes matched
             res.push(*inner_node.value_ref());
         }
 
-        if key.as_bytes_with_nul()[i] != seq[i] {
+        if key_bytes[i] != seq[i] {
             // Mismatch
             return
         }
