@@ -1,10 +1,8 @@
-use std::collections::BTreeSet;
+use super::io::slurp_file;
+use super::{PeptideId, PeptideTrie};
+use blart::{AsBytes, AttemptOptimisticPrefixMatch, ConcreteNodePtr, InnerNode, NodePtr, OpaqueNodePtr, PessimisticMismatch, TreeMap};
 use std::ffi::CString;
 use std::path::PathBuf;
-use blart::{InnerNode, InnerNode16, InnerNode256, InnerNode4, InnerNode48, LeafNode, NodePtr, NodeType, OpaqueNodePtr, TreeMap};
-use blart::visitor::{Visitable, Visitor};
-use super::{PeptideId, PeptideTrie};
-use super::io::slurp_file;
 
 pub fn read_fasta(fasta_path: PathBuf) -> impl Iterator<Item: FastaEntry> {
     FastaIterator {
@@ -23,9 +21,9 @@ fn annotate_iter<T: Iterator<Item: FastaEntry>, const N: usize>(iter: T, peptide
     )
 }
 
-fn annotate<'a, const N: usize>(entry: &impl FastaEntry, peptides: &'a OpaqueNodePtr<CString, PeptideId, N>) -> PreppedFastaEntry {
+fn annotate<const N: usize>(entry: &impl FastaEntry, peptides: &OpaqueNodePtr<CString, PeptideId, N>) -> PreppedFastaEntry {
     let seq = entry.sequence().to_owned();
-    let peps = get_peptides_for_sequence(&seq, &peptides);
+    let peps = get_peptides_for_sequence(&peptides, &seq);
 
     PreppedFastaEntry{
         header: entry.header().to_owned(),
@@ -34,122 +32,14 @@ fn annotate<'a, const N: usize>(entry: &impl FastaEntry, peptides: &'a OpaqueNod
     }
 }
 
-fn get_peptides_for_sequence<const N: usize>(seq: &String, peptides: &OpaqueNodePtr<CString, PeptideId, N>) -> Vec<PeptideId> {
+fn get_peptides_for_sequence<const N: usize>(peptides: &OpaqueNodePtr<CString, PeptideId, N>, seq: &String) -> Vec<PeptideId> {
     let mut res = Vec::new();
 
     for i in 0..seq.len() {
-        peptides.visit_with(&mut ProteinSequenceVisitor::new(seq.as_bytes(), i, &mut res));
+        match_peptides(peptides, &seq, i, 0, &mut res);
     }
 
     res
-}
-
-struct ProteinSequenceVisitor<'a> {
-    seq: &'a [u8],
-    start: usize,
-    res: &'a mut Vec<PeptideId>,
-    idx: usize,
-}
-
-impl<'a> ProteinSequenceVisitor<'a> {
-    fn new(seq: &'a [u8], start: usize, res: &'a mut Vec<PeptideId>) -> ProteinSequenceVisitor<'a> {
-        ProteinSequenceVisitor { seq, start, res, idx: 0, }
-    }
-}
-
-impl<const N: usize> Visitor<CString, PeptideId, N> for ProteinSequenceVisitor<'_> {
-    type Output=();
-
-    fn default_output(&self) -> Self::Output { }
-
-    fn combine_output(&self, o1: Self::Output, o2: Self::Output) -> Self::Output { }
-
-    fn visit_node4(&mut self, t: &InnerNode4<CString, PeptideId, N>) -> Self::Output {
-        if self.start + self.idx >= self.seq.len() {
-            return ()
-        }
-
-        let next = t.lookup_child(self.seq[self.idx]);
-
-        next.map(|n|
-            n.visit_with(
-                &mut ProteinSequenceVisitor {
-                    seq: self.seq,
-                    start: self.start,
-                    res: self.res,
-                    idx: self.idx + 1,
-                }
-            )
-        );
-    }
-
-    fn visit_node16(&mut self, t: &InnerNode16<CString, PeptideId, N>) -> Self::Output {
-        if self.start + self.idx >= self.seq.len() {
-            return ()
-        }
-
-        let next = t.lookup_child(self.seq[self.idx]);
-
-        next.map(|n|
-            n.visit_with(
-                &mut ProteinSequenceVisitor {
-                    seq: self.seq,
-                    start: self.start,
-                    res: self.res,
-                    idx: self.idx + 1,
-                }
-            )
-        );
-    }
-
-    fn visit_node48(&mut self, t: &InnerNode48<CString, PeptideId, N>) -> Self::Output {
-        if self.start + self.idx >= self.seq.len() {
-            return ()
-        }
-
-        let next = t.lookup_child(self.seq[self.idx]);
-
-        next.map(|n|
-            n.visit_with(
-                &mut ProteinSequenceVisitor {
-                    seq: self.seq,
-                    start: self.start,
-                    res: self.res,
-                    idx: self.idx + 1,
-                }
-            )
-        );
-    }
-
-    fn visit_node256(&mut self, t: &InnerNode256<CString, PeptideId, N>) -> Self::Output {
-        if self.start + self.idx >= self.seq.len() {
-            return ()
-        }
-
-        let next = t.lookup_child(self.seq[self.idx]);
-
-        next.map(|n|
-            n.visit_with(
-                &mut ProteinSequenceVisitor {
-                    seq: self.seq,
-                    start: self.start,
-                    res: self.res,
-                    idx: self.idx + 1,
-                }
-            )
-        );
-
-    }
-
-    fn visit_leaf(&mut self, t: &LeafNode<CString, PeptideId, N>) -> Self::Output {
-        let seq = &self.seq[self.start..self.start + self.idx - 1];
-
-        if t.matches_full_key(seq) {
-            self.res.push(*t.value_ref());
-        } else {
-            println!("Leaf mismatch! Reached {:?} with {:?}", t.key_ref(), String::from_utf8(seq.to_vec()).unwrap());
-        }
-    }
 }
 
 struct FastaIterator {
@@ -253,5 +143,74 @@ impl FastaEntry for PreppedFastaEntry {
 
     fn sequence(&self) -> &String {
         &self.sequence
+    }
+}
+
+/// Search in the given tree for any peptides that are substrings of `seq` starting at
+/// `start`, having already traversed `depth` characters within the tree.
+///
+/// This is essentially equivalent to `search_unchecked` but permits recording multiple
+/// matches while advancing through the sequence. However, due to implementation details
+/// within `blart` we skip the optimization of using optimistic/pessimistic matching and
+/// simply compare the full key at each leaf we find (the pessimisitic approach).
+///
+/// The challenge here is that path compression of the tree means that a single node
+/// might represent many bytes in the key, and those bytes might be implicit. This
+/// means that we don't know what length of key to check!
+fn match_peptides<const N: usize>(node: &OpaqueNodePtr<CString, PeptideId, { N }>, seq: &String, start: usize, depth: usize, res: &mut Vec<PeptideId>) {
+    match node.to_node_ptr() {
+        ConcreteNodePtr::Node4(t) => {
+            let inner_node = t.read();
+
+            let prefix_match = inner_node.attempt_pessimistic_match_prefix(&seq.as_bytes()[start + depth..]);
+
+            if prefix_match.is_err() {
+                println!("failed to match at depth {} ({})", depth, &seq.as_str()[start + depth..]);
+                return
+            }
+
+            let m = prefix_match.unwrap();
+
+            let new_depth = depth + m.matched_bytes + 1;
+
+            if new_depth >= seq.len() {
+                println!("too close to end at depth {}", depth);
+                return
+            }
+
+            println!("matched {} bytes; searching for next byte {} at depth {}", m.matched_bytes, &seq.as_str()[start + new_depth..start + new_depth + 1], new_depth);
+
+            let next = inner_node.lookup_child(seq.as_bytes()[start + new_depth]);
+
+            next.as_ref().map(|n|
+                match_peptides(
+                    n,
+                    seq,
+                    start,
+                    new_depth + 1, // we matched one additional byte with `lookup_child`
+                    res
+                )
+            );
+        }
+        ConcreteNodePtr::Node16(t) => {
+            todo!()
+        }
+        ConcreteNodePtr::Node48(t) => {
+            todo!()
+        }
+        ConcreteNodePtr::Node256(t) => {
+            todo!()
+        }
+        ConcreteNodePtr::LeafNode(t) => {
+            // We might reach a leaf early, if it has a unique prefix shorter than the key.
+            // Here we just check the length.
+            let n = t.read();
+            let key = n.key_ref();
+            println!("checking leaf {:?}", key);
+            let len = key.as_bytes().len();
+            if start+len < seq.len()-1 && key.as_bytes().eq(&seq.as_bytes()[start..start+len]) {
+                res.push(*t.read().value_ref());
+            }
+        }
     }
 }
