@@ -30,8 +30,10 @@ fn annotate_iter<T: Iterator<Item: FastaEntry>, const N: usize>(iter: T, peptide
 }
 
 fn annotate<const N: usize>(entry: &impl FastaEntry, peptides: &OpaqueNodePtr<CString, PeptideId, N>) -> PreppedFastaEntry {
-    let seq = entry.sequence().to_owned();
-    let peps = annotate_sequence(&peptides, seq.as_bytes());
+    // TODO: string copy should be eliminated
+    let seq = entry.sequence().clone();
+
+    let peps = annotate_sequence(peptides, seq.as_bytes());
 
     PreppedFastaEntry{
         header: entry.header().to_owned(),

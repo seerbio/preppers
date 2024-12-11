@@ -41,11 +41,17 @@ impl PeptideTrie {
     }
 }
 
-fn annotate_sequence<const N: usize>(node: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8]) -> Vec<PeptideId> {
+fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8]) -> Vec<PeptideId> {
     let mut res = Vec::new();
 
     for i in 0..seq.len() {
-        _annotate_sequence(node, seq, i, &mut res);
+        // SAFETY: Since we have an immutable reference to the root node, that
+        // means there can only exist other immutable references aside from this one,
+        // and no mutable references. That means that no mutating operations can occur
+        // on the root node or any child of the root node.
+        unsafe {
+            _annotate_sequence(root, seq, i, &mut res);
+        }
     }
 
     res
@@ -58,21 +64,34 @@ fn annotate_sequence<const N: usize>(node: &OpaqueNodePtr<CString, PeptideId, N>
 /// matches while advancing through the sequence. We use the same adaptive prefix
 /// matching approach, but unconditionally compare full key strings (optimistic strategy),
 /// which will be slightly less efficient for sufficiently short peptides.
-fn _annotate_sequence<const N: usize>(node: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8], start: usize, res: &mut Vec<PeptideId>) {
+///
+/// # Safety
+///  - This function cannot be called concurrently with any mutating operation
+///    on `root` or any child node of `root`. This function will arbitrarily
+///    read to any child in the given tree.
+unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8], start: usize, res: &mut Vec<PeptideId>) {
     let mut depth = 0;
-    let mut current_node = *node;
+    let mut current_node = *root;
     loop {
         let step = match current_node.to_node_ptr() {
-            ConcreteNodePtr::Node4(t) => {
+            ConcreteNodePtr::Node4(t) => unsafe {
+                // SAFETY: The safety requirement is covered by the safety requirement on the
+                // containing function
                 do_inner_lookup(seq, start, depth, res, t)
             }
-            ConcreteNodePtr::Node16(t) => {
+            ConcreteNodePtr::Node16(t) => unsafe {
+                // SAFETY: The safety requirement is covered by the safety requirement on the
+                // containing function
                 do_inner_lookup(seq, start, depth, res, t)
             }
-            ConcreteNodePtr::Node48(t) => {
+            ConcreteNodePtr::Node48(t) => unsafe {
+                // SAFETY: The safety requirement is covered by the safety requirement on the
+                // containing function
                 do_inner_lookup(seq, start, depth, res, t)
             }
-            ConcreteNodePtr::Node256(t) => {
+            ConcreteNodePtr::Node256(t) => unsafe {
+                // SAFETY: The safety requirement is covered by the safety requirement on the
+                // containing function
                 do_inner_lookup(seq, start, depth, res, t)
             }
             ConcreteNodePtr::LeafNode(_) => {
@@ -93,10 +112,17 @@ fn _annotate_sequence<const N: usize>(node: &OpaqueNodePtr<CString, PeptideId, N
 /// - Check for explicit or implicit prefix match to the node, and return None on mismatch
 /// - Check for keys terminating after the node's prefix (child for byte \0) and handle the leaf
 /// - Locate any next node further in the sequence
-fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N>, const N: usize>(seq: &[u8], start: usize, depth: usize, res: &mut Vec<PeptideId>, t: NodePtr<N, T>)
+///
+/// # Safety
+///  - No other access or mutation to the `t` Node can happen while this function runs.
+unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N>, const N: usize>(seq: &[u8], start: usize, depth: usize, res: &mut Vec<PeptideId>, t: NodePtr<N, T>)
     -> Option<(OpaqueNodePtr<CString, PeptideId, N>, usize)>
 {
-    let inner_node = t.read();
+    // SAFETY: The lifetime produced from this is bounded to this scope and does not
+    // escape. Further, no other code mutates the node referenced, which is further
+    // enforced the "no concurrent reads or writes" requirement on the
+    // `_annotate_sequence` function.
+    let inner_node = unsafe { t.as_ref() };
 
     // println!("attempting match at depth {} ({})", depth, &seq.as_str()[start + depth..]);
 
@@ -159,7 +185,7 @@ fn handle_leaf<const N: usize>(seq: &[u8], start: usize, res: &mut Vec<PeptideId
 
     if start + len < seq.len() - 1 && key.as_bytes()[0..len].eq(&seq[start..start + len]) {
         // println!("key matches! adding {:?} to result", key);
-        res.push(*t.read().value_ref());
+        res.push(*n.value_ref());
     }
 }
 
