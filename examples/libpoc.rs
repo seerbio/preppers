@@ -20,9 +20,12 @@ struct LibPoc {
 
 
 fn main() {
+    let start = Instant::now();
+
     let args: LibPoc = argh::from_env();
 
-    /// Read peptides
+    // Read peptides
+    ////////////////
 
     let pep_read_start = Instant::now();
 
@@ -32,7 +35,8 @@ fn main() {
     let pep_read_duration = pep_read_start.elapsed();
     println!("Read peptides file in {:.4} sec", pep_read_duration.as_secs_f64());
 
-    /// Build trie
+    // Build trie
+    /////////////
 
     let trie_build_start = Instant::now();
     let mut trie = PeptideTrie::new();
@@ -53,6 +57,9 @@ fn main() {
     //
     // println!("PEPTIDES: {:#?}", trie);
 
+    // Annotate proteins
+    ////////////////////
+
     let annotate_start = Instant::now();
 
     let prots = annotate_fasta(args.fasta_file, trie);
@@ -69,5 +76,6 @@ fn main() {
     }
 
     let annotate_duration = annotate_start.elapsed();
-    println!("Read and annotated {num_entries} entries with {total_edges} edges in {:.4} sec", annotate_duration.as_secs_f64())
+    println!("Read and annotated {num_entries} entries with {total_edges} edges in {:.4} sec", annotate_duration.as_secs_f64());
+    println!("Total execution time: {:.4} sec", start.elapsed().as_secs_f64());
 }

@@ -3,10 +3,18 @@ use super::{annotate_sequence, PeptideId, PeptideTrie};
 use blart::{OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
 use std::path::PathBuf;
+use std::time::Instant;
 
 pub fn read_fasta(fasta_path: PathBuf) -> impl Iterator<Item: FastaEntry> {
+    let read_start = Instant::now();
+
+    let fasta_bytes = slurp_file(fasta_path);
+
+    let read_duration = read_start.elapsed();
+    println!("Read FASTA in {:.4} sec", read_duration.as_secs_f64());
+
     FastaIterator {
-        file_bytes: slurp_file(fasta_path),
+        file_bytes: fasta_bytes,
         byte_index: 0,
     }
 }
