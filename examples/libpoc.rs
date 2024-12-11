@@ -1,6 +1,6 @@
 use argh::FromArgs;
 use std::path::PathBuf;
-
+use std::time::Instant;
 use preppers::io::slurp_file;
 use preppers::*;
 use preppers::fasta::*;
@@ -22,9 +22,19 @@ struct LibPoc {
 fn main() {
     let args: LibPoc = argh::from_env();
 
+    /// Read peptides
+
+    let pep_read_start = Instant::now();
+
     // Assume inputs are small and simply read into memory
     let pep_bytes = slurp_file(args.peptides_file);
 
+    let pep_read_duration = pep_read_start.elapsed();
+    println!("Read peptides file in {:.4} sec", pep_read_duration.as_secs_f64());
+
+    /// Build trie
+
+    let trie_build_start = Instant::now();
     let mut trie = PeptideTrie::new();
 
     // Loop over peptides
@@ -36,21 +46,28 @@ fn main() {
         trie.add(pep);
     }
 
-    println!("Added {} peptides to trie", trie.len());
+    let trie_build_duration = trie_build_start.elapsed();
+    println!("Added {} peptides to trie in {:.4} sec", trie.len(), trie_build_duration.as_secs_f64());
 
-    println!("STATS: {:#?}", trie.stats().expect("Trie was empty!"));
+    // println!("STATS: {:#?}", trie.stats().expect("Trie was empty!"));
+    //
+    // println!("PEPTIDES: {:#?}", trie);
 
-    println!("PEPTIDES: {:#?}", trie);
+    let annotate_start = Instant::now();
 
     let prots = annotate_fasta(args.fasta_file, trie);
     // let prots = read_fasta(args.fasta_file);
 
     let mut num_entries : u64 = 0;
+    let mut total_edges : u64 = 0;
     for entry in prots {
-        println!("{}: {} peptides -- {:?}", entry.header(), entry.peptides().len(), entry.peptides());
+        // println!("{}: {} peptides -- {:?}", entry.header(), entry.peptides().len(), entry.peptides());
         // println!("{}: {} peptides", entry.header(), entry.sequence());
 
         num_entries += 1;
+        total_edges += entry.peptides().len() as u64;
     }
-    println!("Read {num_entries} entries!")
+
+    let annotate_duration = annotate_start.elapsed();
+    println!("Read and annotated {num_entries} entries with {total_edges} edges in {:.4} sec", annotate_duration.as_secs_f64())
 }
