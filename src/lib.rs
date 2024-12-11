@@ -7,7 +7,6 @@ pub use fasta::read_fasta;
 use blart::visitor::{TreeStats, TreeStatsCollector};
 use blart::{ConcreteNodePtr, InnerNode, LeafNode, Node, NodePtr, NodeType, OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
-use std::ops::Index;
 
 // Types
 type PeptideId = u64;
