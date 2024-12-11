@@ -1,7 +1,8 @@
 use super::io::slurp_file;
 use super::{PeptideId, PeptideTrie};
-use blart::{AsBytes, AttemptOptimisticPrefixMatch, ConcreteNodePtr, InnerNode, NodePtr, OpaqueNodePtr, PessimisticMismatch, TreeMap};
+use blart::{AsBytes, AttemptOptimisticPrefixMatch, ConcreteNodePtr, InnerNode, InnerNode4, Node, NodePtr, OpaqueNodePtr, PessimisticMismatch, TreeMap};
 use std::ffi::CString;
+use std::mem::ManuallyDrop;
 use std::path::PathBuf;
 
 pub fn read_fasta(fasta_path: PathBuf) -> impl Iterator<Item: FastaEntry> {
@@ -156,66 +157,16 @@ impl FastaEntry for PreppedFastaEntry {
 fn match_peptides<const N: usize>(node: &OpaqueNodePtr<CString, PeptideId, N>, seq: &String, start: usize, depth: usize, res: &mut Vec<PeptideId>) {
     match node.to_node_ptr() {
         ConcreteNodePtr::Node4(t) => {
-            let inner_node = t.read();
-
-            // println!("attempting match at depth {} ({})", depth, &seq.as_str()[start + depth..]);
-
-            let prefix_match = inner_node.attempt_pessimistic_match_prefix(&seq.as_bytes()[start + depth..]);
-
-            if prefix_match.is_err() {
-                // println!("failed to match at depth {} ({})", depth, &seq.as_str()[start + depth..]);
-                return
-            }
-
-            let m = prefix_match.unwrap();
-
-            let new_depth = depth + m.matched_bytes;
-
-            if new_depth >= seq.len() {
-                // println!("too close to end at depth {}", depth);
-                return
-            }
-
-            // println!("matched {} bytes (prefix: {})", m.matched_bytes, &seq[start..start + new_depth]);
-
-            // Two possible paths from here -- either a string terminating zero, or the next char
-            for byte in vec![
-                b'\0',
-                seq.as_bytes()[start + new_depth]
-            ] {
-                let brep = if byte != 0 {
-                    format!("{}", byte as char)
-                } else {
-                    "\\0".into()
-                };
-                // println!("searching for next byte {} at depth {}", brep, new_depth);
-
-                let next = inner_node.lookup_child(byte);
-
-                if next.is_none() {
-                    // println!("no match!")
-                } else {
-                    let n = next.unwrap();
-                    // println!("matched a child node; descending into {:?}", n.to_node_ptr());
-
-                    match_peptides(
-                        &n,
-                        seq,
-                        start,
-                        new_depth + 1, // we matched one additional byte with `lookup_child`
-                        res
-                    );
-                }
-            }
+            do_inner_lookup(&seq, start, depth, res, t);
         }
         ConcreteNodePtr::Node16(t) => {
-            todo!()
+            do_inner_lookup(&seq, start, depth, res, t);
         }
         ConcreteNodePtr::Node48(t) => {
-            todo!()
+            do_inner_lookup(&seq, start, depth, res, t);
         }
         ConcreteNodePtr::Node256(t) => {
-            todo!()
+            do_inner_lookup(&seq, start, depth, res, t);
         }
         ConcreteNodePtr::LeafNode(t) => {
             // Due to the potential for optimistic matching, we need to check the full
@@ -232,6 +183,60 @@ fn match_peptides<const N: usize>(node: &OpaqueNodePtr<CString, PeptideId, N>, s
                 // println!("key matches! adding {:?} to result", key);
                 res.push(*t.read().value_ref());
             }
+        }
+    }
+}
+
+fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N>, const N: usize>(seq: &&String, start: usize, depth: usize, res: &mut Vec<PeptideId>, t: NodePtr<N, T>) -> () {
+    let inner_node = t.read();
+
+    // println!("attempting match at depth {} ({})", depth, &seq.as_str()[start + depth..]);
+
+    let prefix_match = inner_node.attempt_pessimistic_match_prefix(&seq.as_bytes()[start + depth..]);
+
+    if prefix_match.is_err() {
+        // println!("failed to match at depth {} ({})", depth, &seq.as_str()[start + depth..]);
+        return
+    }
+
+    let m = prefix_match.unwrap();
+
+    let new_depth = depth + m.matched_bytes;
+
+    if new_depth >= seq.len() {
+        // println!("too close to end at depth {}", depth);
+        return
+    }
+
+    // println!("matched {} bytes (prefix: {})", m.matched_bytes, &seq[start..start + new_depth]);
+
+    // Two possible paths from here -- either a string terminating zero, or the next char
+    for byte in vec![
+        b'\0',
+        seq.as_bytes()[start + new_depth]
+    ] {
+        let brep = if byte != 0 {
+            format!("{}", byte as char)
+        } else {
+            "\\0".into()
+        };
+        // println!("searching for next byte {} at depth {}", brep, new_depth);
+
+        let next = inner_node.lookup_child(byte);
+
+        if next.is_none() {
+            // println!("no match!")
+        } else {
+            let n = next.unwrap();
+            // println!("matched a child node; descending into {:?}", n.to_node_ptr());
+
+            match_peptides(
+                &n,
+                seq,
+                start,
+                new_depth + 1, // we matched one additional byte with `lookup_child`
+                res
+            );
         }
     }
 }
