@@ -40,6 +40,8 @@ fn main() {
 
     println!("STATS: {:#?}", trie.stats().expect("Trie was empty!"));
 
+    println!("PEPTIDES: {:#?}", trie);
+
     let prots = annotate_fasta(args.fasta_file, trie);
     // let prots = read_fasta(args.fasta_file);
 

@@ -150,47 +150,63 @@ impl FastaEntry for PreppedFastaEntry {
 /// `start`, having already traversed `depth` characters within the tree.
 ///
 /// This is essentially equivalent to `search_unchecked` but permits recording multiple
-/// matches while advancing through the sequence. However, due to implementation details
-/// within `blart` we skip the optimization of using optimistic/pessimistic matching and
-/// simply compare the full key at each leaf we find (the pessimisitic approach).
-///
-/// The challenge here is that path compression of the tree means that a single node
-/// might represent many bytes in the key, and those bytes might be implicit. This
-/// means that we don't know what length of key to check!
-fn match_peptides<const N: usize>(node: &OpaqueNodePtr<CString, PeptideId, { N }>, seq: &String, start: usize, depth: usize, res: &mut Vec<PeptideId>) {
+/// matches while advancing through the sequence. We use the same adaptive prefix
+/// matching approach, but unconditionally compare full key strings (optimistic strategy),
+/// which will be slightly less efficient for sufficiently short peptides.
+fn match_peptides<const N: usize>(node: &OpaqueNodePtr<CString, PeptideId, N>, seq: &String, start: usize, depth: usize, res: &mut Vec<PeptideId>) {
     match node.to_node_ptr() {
         ConcreteNodePtr::Node4(t) => {
             let inner_node = t.read();
 
+            // println!("attempting match at depth {} ({})", depth, &seq.as_str()[start + depth..]);
+
             let prefix_match = inner_node.attempt_pessimistic_match_prefix(&seq.as_bytes()[start + depth..]);
 
             if prefix_match.is_err() {
-                println!("failed to match at depth {} ({})", depth, &seq.as_str()[start + depth..]);
+                // println!("failed to match at depth {} ({})", depth, &seq.as_str()[start + depth..]);
                 return
             }
 
             let m = prefix_match.unwrap();
 
-            let new_depth = depth + m.matched_bytes + 1;
+            let new_depth = depth + m.matched_bytes;
 
             if new_depth >= seq.len() {
-                println!("too close to end at depth {}", depth);
+                // println!("too close to end at depth {}", depth);
                 return
             }
 
-            println!("matched {} bytes; searching for next byte {} at depth {}", m.matched_bytes, &seq.as_str()[start + new_depth..start + new_depth + 1], new_depth);
+            // println!("matched {} bytes (prefix: {})", m.matched_bytes, &seq[start..start + new_depth]);
 
-            let next = inner_node.lookup_child(seq.as_bytes()[start + new_depth]);
+            // Two possible paths from here -- either a string terminating zero, or the next char
+            for byte in vec![
+                b'\0',
+                seq.as_bytes()[start + new_depth]
+            ] {
+                let brep = if byte != 0 {
+                    format!("{}", byte as char)
+                } else {
+                    "\\0".into()
+                };
+                // println!("searching for next byte {} at depth {}", brep, new_depth);
 
-            next.as_ref().map(|n|
-                match_peptides(
-                    n,
-                    seq,
-                    start,
-                    new_depth + 1, // we matched one additional byte with `lookup_child`
-                    res
-                )
-            );
+                let next = inner_node.lookup_child(byte);
+
+                if next.is_none() {
+                    // println!("no match!")
+                } else {
+                    let n = next.unwrap();
+                    // println!("matched a child node; descending into {:?}", n.to_node_ptr());
+
+                    match_peptides(
+                        &n,
+                        seq,
+                        start,
+                        new_depth + 1, // we matched one additional byte with `lookup_child`
+                        res
+                    );
+                }
+            }
         }
         ConcreteNodePtr::Node16(t) => {
             todo!()
@@ -202,13 +218,18 @@ fn match_peptides<const N: usize>(node: &OpaqueNodePtr<CString, PeptideId, { N }
             todo!()
         }
         ConcreteNodePtr::LeafNode(t) => {
-            // We might reach a leaf early, if it has a unique prefix shorter than the key.
-            // Here we just check the length.
+            // Due to the potential for optimistic matching, we need to check the full
+            // key matches. In the future, we can track pessimistic/optimistic match
+            // to elide this check if all matches to the prefix were explicit.
+
             let n = t.read();
             let key = n.key_ref();
-            println!("checking leaf {:?}", key);
-            let len = key.as_bytes().len();
-            if start+len < seq.len()-1 && key.as_bytes().eq(&seq.as_bytes()[start..start+len]) {
+
+            // println!("checking leaf {:?}", key);
+            let len = key.as_bytes().len() - 1;
+
+            if start+len < seq.len()-1 && key.as_bytes()[0..len].eq(&seq.as_bytes()[start..start+len]) {
+                // println!("key matches! adding {:?} to result", key);
                 res.push(*t.read().value_ref());
             }
         }

@@ -12,6 +12,7 @@ use blart::visitor::{TreeStats, TreeStatsCollector};
 // Types
 type PeptideId = u64;
 
+#[derive(Debug)]
 pub struct PeptideTrie {
     _tree: TreeMap<CString, PeptideId>,
     _next_id: PeptideId,
