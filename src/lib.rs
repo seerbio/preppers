@@ -5,7 +5,7 @@ pub mod fasta;
 pub use fasta::read_fasta;
 
 use blart::visitor::{TreeStats, TreeStatsCollector};
-use blart::{ConcreteNodePtr, InnerNode, LeafNode, Node, NodePtr, OpaqueNodePtr, TreeMap};
+use blart::{ConcreteNodePtr, InnerNode, LeafNode, Node, NodePtr, NodeType, OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
 use std::ops::Index;
 
@@ -148,7 +148,9 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
     inner_node.lookup_child(b'\0').map(
         |l| match l.to_node_ptr() {
             ConcreteNodePtr::LeafNode(n) => {
-                handle_leaf(&seq, start, res, n);
+                // SAFETY: The safety requirement is covered by the safety requirement on the
+                // containing function
+                unsafe { handle_leaf(&seq[start..], res, n); }
             }
             _ => { panic!("Found non-leaf for null byte!") }
         }
@@ -160,33 +162,61 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
         return None
     }
 
-    match next.unwrap().to_node_ptr() {
-        ConcreteNodePtr::LeafNode(n) => {
-            handle_leaf(&seq, start, res, n);
-            None
+    let n = next.unwrap();
+
+    // Check node type before calling `to_node_ptr`, as converting back
+    // to opaque (to return) is expensive!
+    match n.node_type() {
+        NodeType::Leaf => {
+            match n.to_node_ptr() {
+                ConcreteNodePtr::LeafNode(l) => {
+                    // SAFETY: The safety requirement is covered by the safety requirement on the
+                    // containing function
+                    unsafe { handle_leaf(&seq[start..], res, l); }
+                    None
+                }
+                _ => { panic!("Unwrapped unexpected node type!") }
+            }
         }
-        n => {
-            Some((n.to_opaque(), new_depth + 1))
+        _ => {
+            // Plus one, as we matched one additional byte with lookup_child
+            Some((n, new_depth + 1))
         }
     }
 }
 
-fn handle_leaf<const N: usize>(seq: &[u8], start: usize, res: &mut Vec<PeptideId>, t: NodePtr<N, LeafNode<CString, PeptideId, N>>) {
+///
+/// # Safety
+///  - No other access or mutation to the `t` Node can happen while this function runs.
+unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: NodePtr<N, LeafNode<CString, PeptideId, N>>) {
     // Due to the potential for optimistic matching, we need to check the full
     // key matches. In the future, we can track pessimistic/optimistic match
     // to elide this check if all matches to the prefix were explicit.
 
-    let n = t.read();
-    let key = n.key_ref();
+    // SAFETY: The lifetime produced from this is bounded to this scope and does not
+    // escape. Further, no other code mutates the node referenced, which is further
+    // enforced the "no concurrent reads or writes" requirement on the
+    // `_annotate_sequence` function.
+    let inner_node = unsafe { t.as_ref() };
 
-    // println!("checking leaf {:?}", key);
-    // TODO: change to check equality as we walk through looking for null terminator
-    let len = key.as_bytes().len();
+    let key = inner_node.key_ref();
 
-    if start + len < seq.len() - 1 && key.as_bytes()[0..len].eq(&seq[start..start + len]) {
-        // println!("key matches! adding {:?} to result", key);
-        res.push(*n.value_ref());
+    let mut i = 0;
+    while i < seq.len() {
+        if key.as_bytes_with_nul()[i] == b'\0' {
+            // All bytes matched
+            res.push(*inner_node.value_ref());
+        }
+
+        if key.as_bytes_with_nul()[i] != seq[i] {
+            // Mismatch
+            return
+        }
+
+        i += 1;
     }
+
+    // No more bytes in the sequence before exhausting the key; no match
 }
 
 #[cfg(test)]
