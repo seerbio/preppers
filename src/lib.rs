@@ -1,12 +1,11 @@
 pub mod io;
 pub mod fasta;
 
-use std::cmp::min;
 // Reexports
 pub use fasta::read_fasta;
 
 use blart::visitor::{TreeStats, TreeStatsCollector};
-use blart::{AttemptOptimisticPrefixMatch, ConcreteNodePtr, InnerNode, LeafNode, Node, NodePtr, NodeType, OpaqueNodePtr, OptimisticMismatch, PessimisticMismatch, PrefixMatch, TreeMap};
+use blart::{ConcreteNodePtr, InnerNode, LeafNode, Node, NodePtr, NodeType, OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
 
 // Types

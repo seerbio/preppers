@@ -62,20 +62,21 @@ fn main() {
 
     let annotate_start = Instant::now();
 
-    let prots = annotate_fasta(args.fasta_file, trie);
-    // let prots = read_fasta(args.fasta_file);
+    // let prots = annotate_fasta(args.fasta_file, trie);
+    let prots = read_fasta(args.fasta_file);
 
     let mut num_entries : u64 = 0;
-    let mut total_edges : u64 = 0;
-    for entry in prots {
+    // let mut total_edges : u64 = 0;
+    for entry in prots.iter() {
         // println!("{}: {} peptides -- {:?}", entry.header(), entry.peptides().len(), entry.peptides());
         // println!("{}: {} peptides", entry.header(), entry.sequence());
 
         num_entries += 1;
-        total_edges += entry.peptides().len() as u64;
+        // total_edges += entry.peptides().len() as u64;
     }
 
     let annotate_duration = annotate_start.elapsed();
-    println!("Read and annotated {num_entries} entries with {total_edges} edges in {:.4} sec", annotate_duration.as_secs_f64());
+    // println!("Read and annotated {num_entries} entries with {total_edges} edges in {:.4} sec", annotate_duration.as_secs_f64());
+    println!("Read and annotated {num_entries} entries in {:.4} sec", annotate_duration.as_secs_f64());
     println!("Total execution time: {:.4} sec", start.elapsed().as_secs_f64());
 }
