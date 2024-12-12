@@ -4,7 +4,6 @@ use blart::{OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
 use std::path::PathBuf;
 use std::time::Instant;
-use std::vec::IntoIter;
 
 pub fn read_fasta(fasta_path: PathBuf) -> Fasta {
     let read_start = Instant::now();
@@ -19,25 +18,24 @@ pub fn read_fasta(fasta_path: PathBuf) -> Fasta {
     }
 }
 
-// TODO: reenable annotation
-// pub fn annotate_fasta<'a>(fasta_path: PathBuf, peptides: PeptideTrie) -> impl Iterator<Item=PreppedFastaEntry<'a>> {
-//     annotate_iter(read_fasta(fasta_path), TreeMap::into_raw(peptides._tree).unwrap())
-// }
-//
-// fn annotate_iter<T: Iterator<Item=PlainFastaEntry>, const N: usize>(iter: T, peptides: OpaqueNodePtr<CString, PeptideId, N>) -> impl Iterator<Item=PreppedFastaEntry> {
-//     iter.map(
-//         move |entry| annotate(entry, &peptides)
-//     )
-// }
-//
-// fn annotate<const N: usize>(entry: PlainFastaEntry, peptides: &OpaqueNodePtr<CString, PeptideId, N>) -> PreppedFastaEntry {
-//     let peps = annotate_sequence(peptides, entry.sequence());
-//
-//     PreppedFastaEntry{
-//         entry: entry,
-//         peptides: peps,
-//     }
-// }
+pub fn annotate_fasta<'a>(fasta: &'a Fasta, peptides: PeptideTrie) -> impl Iterator<Item=PreppedFastaEntry<'a>> {
+    annotate_iter(fasta.iter(), TreeMap::into_raw(peptides._tree).unwrap())
+}
+
+fn annotate_iter<'a, T: Iterator<Item=PlainFastaEntry<'a>>, const N: usize>(iter: T, peptides: OpaqueNodePtr<CString, PeptideId, N>) -> impl Iterator<Item=PreppedFastaEntry<'a>> {
+    iter.map(
+        move |entry| annotate(entry, &peptides)
+    )
+}
+
+fn annotate<'a, const N: usize>(entry: PlainFastaEntry<'a>, peptides: &OpaqueNodePtr<CString, PeptideId, N>) -> PreppedFastaEntry<'a> {
+    let peps = annotate_sequence(peptides, entry.sequence());
+
+    PreppedFastaEntry{
+        entry: entry,
+        peptides: peps,
+    }
+}
 
 pub struct Fasta {
     file_bytes: Vec<u8>,
@@ -84,19 +82,19 @@ impl<'a> Iterator for FastaIterator<'a> {
         if !self.eof() && *self.peek() != b'>' {
             panic!("Did not find FASTA header at index {}", self.byte_index)
         }
-        let h_start = self.byte_index;
+        let h_start = self.byte_index; // Increment to omit ">" from header
         while !self.eof() && !b"\n\r".contains(self.peek()) {
             self.byte_index += 1
         }
-        let h_end = self.byte_index;
+        let h_end = self.byte_index - 1;
         let header = &self.fasta.file_bytes[h_start..h_end];
 
         // Read sequence
-        let s_start = self.byte_index;
+        let s_start = self.byte_index + 1;
         while !self.eof() && *self.peek() != b'>' {
             self.byte_index += 1
         }
-        let s_end = self.byte_index;
+        let s_end = self.byte_index - 1;
         let sequence = &self.fasta.file_bytes[s_start..s_end];
 
         Some(
