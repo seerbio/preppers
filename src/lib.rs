@@ -1,11 +1,12 @@
 pub mod io;
 pub mod fasta;
 
+use std::cmp::min;
 // Reexports
 pub use fasta::read_fasta;
 
 use blart::visitor::{TreeStats, TreeStatsCollector};
-use blart::{ConcreteNodePtr, InnerNode, LeafNode, Node, NodePtr, NodeType, OpaqueNodePtr, TreeMap};
+use blart::{AttemptOptimisticPrefixMatch, ConcreteNodePtr, InnerNode, LeafNode, Node, NodePtr, NodeType, OpaqueNodePtr, OptimisticMismatch, PessimisticMismatch, PrefixMatch, TreeMap};
 use std::ffi::CString;
 
 // Types
@@ -60,9 +61,7 @@ fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>
 /// `start`.
 ///
 /// This is essentially equivalent to `search_unchecked` but permits recording multiple
-/// matches while advancing through the sequence. We use the same adaptive prefix
-/// matching approach, but unconditionally compare full key strings (optimistic strategy),
-/// which will be slightly less efficient for sufficiently short peptides.
+/// matches while advancing through the sequence.
 ///
 /// # Safety
 ///  - This function cannot be called concurrently with any mutating operation
@@ -70,28 +69,29 @@ fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>
 ///    read to any child in the given tree.
 unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8], start: usize, res: &mut Vec<PeptideId>) {
     let mut depth = 0;
+    let mut pessimistic_depth = 0;
     let mut current_node = *root;
     loop {
         let step = match current_node.to_node_ptr() {
             ConcreteNodePtr::Node4(t) => unsafe {
                 // SAFETY: The safety requirement is covered by the safety requirement on the
                 // containing function
-                do_inner_lookup(seq, start, depth, res, t)
+                do_inner_lookup(seq, start, depth, pessimistic_depth, res, t)
             }
             ConcreteNodePtr::Node16(t) => unsafe {
                 // SAFETY: The safety requirement is covered by the safety requirement on the
                 // containing function
-                do_inner_lookup(seq, start, depth, res, t)
+                do_inner_lookup(seq, start, depth, pessimistic_depth, res, t)
             }
             ConcreteNodePtr::Node48(t) => unsafe {
                 // SAFETY: The safety requirement is covered by the safety requirement on the
                 // containing function
-                do_inner_lookup(seq, start, depth, res, t)
+                do_inner_lookup(seq, start, depth, pessimistic_depth, res, t)
             }
             ConcreteNodePtr::Node256(t) => unsafe {
                 // SAFETY: The safety requirement is covered by the safety requirement on the
                 // containing function
-                do_inner_lookup(seq, start, depth, res, t)
+                do_inner_lookup(seq, start, depth, pessimistic_depth, res, t)
             }
             ConcreteNodePtr::LeafNode(_) => {
                 panic!("Encountered leaf unexpectedly!")
@@ -102,7 +102,12 @@ unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, Pepti
             break
         }
 
-        (current_node, depth) = step.unwrap();
+        let any_implicit: bool;
+        (current_node, depth, any_implicit) = step.unwrap();
+
+        if !any_implicit {
+            pessimistic_depth = depth;
+        }
     }
 }
 
@@ -114,8 +119,8 @@ unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, Pepti
 ///
 /// # Safety
 ///  - No other access or mutation to the `t` Node can happen while this function runs.
-unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N>, const N: usize>(seq: &[u8], start: usize, depth: usize, res: &mut Vec<PeptideId>, t: NodePtr<N, T>)
-    -> Option<(OpaqueNodePtr<CString, PeptideId, N>, usize)>
+unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N>, const N: usize>(seq: &[u8], start: usize, depth: usize, pessimistic_depth: usize, res: &mut Vec<PeptideId>, t: NodePtr<N, T>)
+    -> Option<(OpaqueNodePtr<CString, PeptideId, N>, usize, bool)>
 {
     // SAFETY: The lifetime produced from this is bounded to this scope and does not
     // escape. Further, no other code mutates the node referenced, which is further
@@ -125,16 +130,34 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
 
     // println!("attempting match at depth {} ({})", depth, &seq.as_str()[start + depth..]);
 
-    let prefix_match = inner_node.attempt_pessimistic_match_prefix(&seq[start + depth..]);
+    let trunc_seq = &seq[start + depth..];
 
-    if prefix_match.is_err() {
-        // println!("failed to match at depth {} ({})", depth, &seq.as_str()[start + depth..]);
-        return None
+    let matched_bytes: usize;
+    let was_optimistic: bool;
+    if pessimistic_depth < depth {
+        // We must switch to optimistic matching
+        match inner_node.optimistic_match_prefix(trunc_seq) {
+            Ok(m) => {
+                matched_bytes = m.matched_bytes;
+                was_optimistic = true;
+            }
+            Err(_) => {
+                return None
+            }
+        }
+    } else {
+        match inner_node.attempt_pessimistic_match_prefix(trunc_seq) {
+            Ok(m) => {
+                matched_bytes = m.matched_bytes;
+                was_optimistic = m.any_implicit_bytes;
+            }
+            Err(_) => {
+                return None
+            }
+        }
     }
 
-    let m = prefix_match.unwrap();
-
-    let new_depth = depth + m.matched_bytes;
+    let new_depth = depth + matched_bytes;
 
     if start + new_depth >= seq.len() {
         // println!("too close to end at depth {}", depth);
@@ -144,12 +167,17 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
     // println!("matched {} bytes (prefix: {})", m.matched_bytes, &seq[start..start + new_depth]);
 
     // Two possible paths from here -- either a string terminating zero, or the next char
+    let check_start = if was_optimistic {
+        pessimistic_depth
+    } else {
+        new_depth
+    };
     inner_node.lookup_child(b'\0').map(
         |l| match l.to_node_ptr() {
             ConcreteNodePtr::LeafNode(n) => {
                 // SAFETY: The safety requirement is covered by the safety requirement on the
                 // containing function
-                unsafe { handle_leaf(&seq[start..], res, n); }
+                unsafe { handle_leaf(&seq[start..], res, n, check_start); }
             }
             _ => { panic!("Found non-leaf for null byte!") }
         }
@@ -171,7 +199,7 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
                 ConcreteNodePtr::LeafNode(l) => {
                     // SAFETY: The safety requirement is covered by the safety requirement on the
                     // containing function
-                    unsafe { handle_leaf(&seq[start..], res, l); }
+                    unsafe { handle_leaf(&seq[start..], res, l, check_start); }
                     None
                 }
                 _ => { panic!("Unwrapped unexpected node type!") }
@@ -179,7 +207,7 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
         }
         _ => {
             // Plus one, as we matched one additional byte with lookup_child
-            Some((n, new_depth + 1))
+            Some((n, new_depth + 1, was_optimistic))
         }
     }
 }
@@ -187,7 +215,7 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
 ///
 /// # Safety
 ///  - No other access or mutation to the `t` Node can happen while this function runs.
-unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: NodePtr<N, LeafNode<CString, PeptideId, N>>) {
+unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: NodePtr<N, LeafNode<CString, PeptideId, N>>, check_start: usize) {
     // Due to the potential for optimistic matching, we need to check the full
     // key matches. In the future, we can track pessimistic/optimistic match
     // to elide this check if all matches to the prefix were explicit.
@@ -201,7 +229,7 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: N
     let key = inner_node.key_ref();
     let key_bytes = key.as_bytes_with_nul();
 
-    let mut i = 0;
+    let mut i = check_start;
     while i < seq.len() {
         if key_bytes[i] == b'\0' {
             // All bytes matched

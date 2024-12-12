@@ -39,6 +39,7 @@ fn annotate<const N: usize>(entry: PlainFastaEntry, peptides: &OpaqueNodePtr<CSt
 }
 
 struct FastaIterator {
+    // TODO: allow slices in entries to share lifetime with this vec, and thus be references!
     file_bytes: Vec<u8>,
     byte_index: usize,
 }
