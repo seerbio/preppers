@@ -220,14 +220,13 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
     }
 }
 
+/// Handle a leaf node as a potential match for the given start. Handles verify any
+/// key bytes that were optimistically matched and adding the result to the result vector
+/// when a match is confirmed.
 ///
 /// # Safety
 ///  - No other access or mutation to the `t` Node can happen while this function runs.
 unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: NodePtr<N, LeafNode<CString, PeptideId, N>>, check_start: usize) {
-    // Due to the potential for optimistic matching, we need to check the full
-    // key matches. In the future, we can track pessimistic/optimistic match
-    // to elide this check if all matches to the prefix were explicit.
-
     // SAFETY: The lifetime produced from this is bounded to this scope and does not
     // escape. Further, no other code mutates the node referenced, which is further
     // enforced the "no concurrent reads or writes" requirement on the
@@ -235,24 +234,16 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: N
     let inner_node = unsafe { t.as_ref() };
 
     let key = inner_node.key_ref();
-    let key_bytes = key.as_bytes_with_nul();
+    let key_bytes = key.as_bytes();
 
-    let mut i = check_start;
-    while i < seq.len() {
-        if key_bytes[i] == b'\0' {
-            // All bytes matched
-            res.push(*inner_node.value_ref());
-        }
-
-        if key_bytes[i] != seq[i] {
-            // Mismatch
-            return
-        }
-
-        i += 1;
+    if seq.len() < key_bytes.len() {
+        // Not enough bytes to match
+        return
     }
 
-    // No more bytes in the sequence before exhausting the key; no match
+    if seq[check_start..].starts_with(&key_bytes[check_start..]) {
+        res.push(*inner_node.value_ref());
+    }
 }
 
 #[cfg(test)]
