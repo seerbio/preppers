@@ -5,7 +5,7 @@ use std::ffi::CString;
 use std::path::PathBuf;
 use std::time::Instant;
 
-pub fn read_fasta(fasta_path: PathBuf) -> impl Iterator<Item: FastaEntry> {
+pub fn read_fasta(fasta_path: PathBuf) -> impl Iterator<Item=PlainFastaEntry> {
     let read_start = Instant::now();
 
     let fasta_bytes = slurp_file(fasta_path);
@@ -23,21 +23,17 @@ pub fn annotate_fasta(fasta_path: PathBuf, peptides: PeptideTrie) -> impl Iterat
     annotate_iter(read_fasta(fasta_path), TreeMap::into_raw(peptides._tree).unwrap())
 }
 
-fn annotate_iter<T: Iterator<Item: FastaEntry>, const N: usize>(iter: T, peptides: OpaqueNodePtr<CString, PeptideId, N>) -> impl Iterator<Item=PreppedFastaEntry> {
+fn annotate_iter<T: Iterator<Item=PlainFastaEntry>, const N: usize>(iter: T, peptides: OpaqueNodePtr<CString, PeptideId, N>) -> impl Iterator<Item=PreppedFastaEntry> {
     iter.map(
-        move |entry| annotate(&entry, &peptides)
+        move |entry| annotate(entry, &peptides)
     )
 }
 
-fn annotate<const N: usize>(entry: &impl FastaEntry, peptides: &OpaqueNodePtr<CString, PeptideId, N>) -> PreppedFastaEntry {
-    // TODO: string copy should be eliminated
-    let seq = entry.sequence().clone();
-
-    let peps = annotate_sequence(peptides, seq.as_bytes());
+fn annotate<const N: usize>(entry: PlainFastaEntry, peptides: &OpaqueNodePtr<CString, PeptideId, N>) -> PreppedFastaEntry {
+    let peps = annotate_sequence(peptides, entry.sequence());
 
     PreppedFastaEntry{
-        header: entry.header().to_owned(),
-        sequence: seq,
+        entry: entry,
         peptides: peps,
     }
 }
@@ -90,43 +86,43 @@ impl Iterator for FastaIterator {
 
         Some(
             PlainFastaEntry {
-                header: String::from_utf8(header.to_vec()).expect("Invalid UTF8 in header!"),
-                sequence: String::from_utf8(
-                        sequence.to_vec()
-                            .into_iter()
-                            .filter(
-                                |b| !b"\r\n".contains(b)
-                            )
-                            .collect::<Vec<_>>()
-                    ).expect("Invalid UTF8 in sequence!"),
+                // TODO: implicit copy!
+                header: header.to_vec(),
+                sequence: sequence
+                    .to_vec()
+                    .into_iter()
+                    // TODO: filtering and collecting is an implicit copy!
+                    .filter(
+                        |b| !b"\r\n".contains(b)
+                    )
+                    .collect()
             }
         )
     }
 }
 
 pub trait FastaEntry {
-    fn header(&self) -> &String;
-    fn sequence(&self) -> &String;
+    fn header(&self) -> &[u8];
+    fn sequence(&self) -> &[u8];
 }
 
 pub struct PlainFastaEntry {
-    header: String,
-    sequence: String,
+    header: Vec<u8>,
+    sequence: Vec<u8>,
 }
 
 impl FastaEntry for PlainFastaEntry {
-    fn header(&self) -> &String {
+    fn header(&self) -> &[u8] {
         &self.header
     }
 
-    fn sequence(&self) -> &String {
+    fn sequence(&self) -> &[u8] {
         &self.sequence
     }
 }
 
 pub struct PreppedFastaEntry {
-    header: String,
-    sequence: String,
+    entry: PlainFastaEntry,
     peptides: Vec<PeptideId>,
 }
 
@@ -137,11 +133,11 @@ impl PreppedFastaEntry {
 }
 
 impl FastaEntry for PreppedFastaEntry {
-    fn header(&self) -> &String {
-        &self.header
+    fn header(&self) -> &[u8] {
+        self.entry.header()
     }
 
-    fn sequence(&self) -> &String {
-        &self.sequence
+    fn sequence(&self) -> &[u8] {
+        self.entry.sequence()
     }
 }
