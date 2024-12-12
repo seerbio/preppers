@@ -25,7 +25,7 @@ impl PeptideTrie {
         }
     }
 
-    pub fn add(&mut self, peptide: &[u8]) {
+    pub fn insert(&mut self, peptide: &[u8]) {
         let id = self._next_id;
         self._next_id = id + 1;
         self._tree.insert(CString::new(peptide).expect("Invalid string!"), id);
@@ -40,16 +40,25 @@ impl PeptideTrie {
     }
 }
 
+/// Given a protein sequence `seq`, traverse a trie of peptides and return a `Vec` of peptide IDs
+/// whose sequences are found within the protein's sequence. Peptides are found within the sequence
+/// regardless of the location of any cleavage sites; as a result this function provides no
+/// guarantee that peptides have any number of enzymatic termini within the given sequence!
+///
+/// The given slice `seq` will be filtered to remove any newline characters before processing.
 fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8]) -> Vec<PeptideId> {
     let mut res = Vec::new();
 
-    for i in 0..seq.len() {
+    // Filter the sequence
+    let filtseq = seq.iter().filter(|&c| !b"\n\r".contains(c)).copied().collect::<Vec<_>>();
+
+    for i in 0..filtseq.len() {
         // SAFETY: Since we have an immutable reference to the root node, that
         // means there can only exist other immutable references aside from this one,
         // and no mutable references. That means that no mutating operations can occur
         // on the root node or any child of the root node.
         unsafe {
-            _annotate_sequence(root, seq, i, &mut res);
+            _annotate_sequence(&root, &filtseq, i, &mut res);
         }
     }
 

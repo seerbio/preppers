@@ -47,7 +47,7 @@ fn main() {
             continue
         }
 
-        trie.add(pep);
+        trie.insert(pep);
     }
 
     let trie_build_duration = trie_build_start.elapsed();
