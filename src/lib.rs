@@ -172,14 +172,14 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
         return None
     }
 
-    // println!("matched {} bytes (prefix: {})", m.matched_bytes, &seq[start..start + new_depth]);
-
-    // Two possible paths from here -- either a string terminating zero, or the next char
+    // The point where we will start checking the key, if we find a leaf node
     let check_start = if was_optimistic {
         pessimistic_depth
     } else {
         new_depth
     };
+
+    // Two possible paths from here -- either a string terminating zero, or the next char
     inner_node.lookup_child(b'\0').map(
         |l| match l.to_node_ptr() {
             ConcreteNodePtr::LeafNode(n) => {
@@ -191,19 +191,13 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
         }
     );
 
-    let next = inner_node.lookup_child(seq[start + new_depth]);
-
-    if next.is_none() {
-        return None
-    }
-
-    let n = next.unwrap();
+    let next = inner_node.lookup_child(seq[start + new_depth])?;
 
     // Check node type before calling `to_node_ptr`, as converting back
     // to opaque (to return) is expensive!
-    match n.node_type() {
+    match next.node_type() {
         NodeType::Leaf => {
-            match n.to_node_ptr() {
+            match next.to_node_ptr() {
                 ConcreteNodePtr::LeafNode(l) => {
                     // SAFETY: The safety requirement is covered by the safety requirement on the
                     // containing function
@@ -215,7 +209,7 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
         }
         _ => {
             // Plus one, as we matched one additional byte with lookup_child
-            Some((n, new_depth + 1, was_optimistic))
+            Some((next, new_depth + 1, was_optimistic))
         }
     }
 }
