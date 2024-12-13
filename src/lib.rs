@@ -7,6 +7,7 @@ pub use fasta::read_fasta;
 use blart::visitor::{TreeStats, TreeStatsCollector};
 use blart::{ConcreteNodePtr, InnerNode, LeafNode, Node, NodePtr, NodeType, OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
+use blart::map::EntryRef;
 
 // Types
 type PeptideId = u64;
@@ -26,9 +27,32 @@ impl PeptideTrie {
     }
 
     pub fn insert(&mut self, peptide: &[u8]) -> PeptideId {
-        let id = self._next_id;
-        self._next_id = id + 1;
-        self._tree.insert(CString::new(peptide).expect("Invalid string!"), id);
+        let key = CString::new(peptide).expect(&format!("Invalid peptide sequence {:?}", &peptide));
+
+        let entry = self._tree.try_entry_ref(&key);
+
+        match entry {
+            Ok(v) => {
+                match v {
+                    EntryRef::Occupied(o) => {
+                        // Return existing ID
+                        *o.get()
+                    }
+                    EntryRef::Vacant(v) => {
+                        // Insert a new ID
+                        let id = self._next_id;
+                        self._next_id = id + 1;
+
+                        v.insert(id);
+
+                        id
+                    }
+                }
+            }
+            Err(_) => {
+                panic!("Attempted insertion of illegal key. This may be a result of previous corruption!");
+            }
+        }
     }
 
     pub fn len(&self) -> usize {
