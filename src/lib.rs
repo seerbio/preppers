@@ -10,7 +10,7 @@ use std::ffi::CString;
 use blart::map::EntryRef;
 
 // Types
-type PeptideId = u64;
+pub type PeptideId = u64;
 
 #[derive(Debug)]
 pub struct PeptideTrie {

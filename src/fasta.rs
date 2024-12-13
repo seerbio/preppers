@@ -6,12 +6,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 pub fn read_fasta(fasta_path: PathBuf) -> Fasta {
-    let read_start = Instant::now();
-
     let fasta_bytes = slurp_file(fasta_path);
-
-    let read_duration = read_start.elapsed();
-    println!("Read FASTA in {:.4} sec", read_duration.as_secs_f64());
 
     Fasta {
         file_bytes: fasta_bytes,
@@ -19,7 +14,7 @@ pub fn read_fasta(fasta_path: PathBuf) -> Fasta {
 }
 
 pub fn annotate_fasta<'a>(fasta: &'a Fasta, peptides: PeptideTrie) -> impl Iterator<Item=PreppedFastaEntry<'a>> {
-    annotate_iter(fasta.iter(), TreeMap::into_raw(peptides._tree).unwrap())
+    annotate_iter(fasta.iter(), TreeMap::into_raw(peptides._tree).expect("Error! No peptides to annotate!"))
 }
 
 fn annotate_iter<'a, T: Iterator<Item=PlainFastaEntry<'a>>, const N: usize>(iter: T, peptides: OpaqueNodePtr<CString, PeptideId, N>) -> impl Iterator<Item=PreppedFastaEntry<'a>> {
@@ -40,6 +35,15 @@ fn annotate<'a, const N: usize>(entry: PlainFastaEntry<'a>, peptides: &OpaqueNod
 pub struct Fasta {
     file_bytes: Vec<u8>,
 }
+
+impl Fasta {
+    pub fn new(file_bytes: Vec<u8>) -> Fasta {
+        Fasta {
+            file_bytes,
+        }
+    }
+}
+
 
 impl<'a> Fasta {
     pub fn iter(&'a self) -> FastaIterator<'a> {
@@ -86,7 +90,7 @@ impl<'a> Iterator for FastaIterator<'a> {
         while !self.eof() && !b"\n\r".contains(self.peek()) {
             self.byte_index += 1
         }
-        let h_end = self.byte_index - 1;
+        let h_end = self.byte_index;
         let header = &self.fasta.file_bytes[h_start..h_end];
 
         // Read sequence

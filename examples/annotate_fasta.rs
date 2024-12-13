@@ -49,7 +49,7 @@ fn main() {
         }
 
         trie.insert(pep);
-        
+
         n += 1;
     }
 
@@ -66,7 +66,13 @@ fn main() {
 
     let annotate_start = Instant::now();
 
+    let fasta_read_start = Instant::now();
+
     let fasta = read_fasta(args.fasta_file);
+
+    let fasta_read_duration = fasta_read_start.elapsed();
+    println!("Read FASTA in {:.4} sec", fasta_read_duration.as_secs_f64());
+
     // let prots = fasta.iter();
     let prots = annotate_fasta(&fasta, trie);
 
