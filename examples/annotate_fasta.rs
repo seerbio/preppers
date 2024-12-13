@@ -1,9 +1,9 @@
 use argh::FromArgs;
-use std::path::PathBuf;
-use std::time::Instant;
+use preppers::fasta::*;
 use preppers::io::slurp_file;
 use preppers::*;
-use preppers::fasta::*;
+use std::path::PathBuf;
+use std::time::Instant;
 
 
 /// Try building and using a trie of peptides
@@ -42,16 +42,19 @@ fn main() {
     let mut trie = PeptideTrie::new();
 
     // Loop over peptides
+    let mut n = 0;
     for pep in pep_bytes.split(|b| *b == b'\n') {
         if pep.len() == 0 {
             continue
         }
 
         trie.insert(pep);
+        
+        n += 1;
     }
 
     let trie_build_duration = trie_build_start.elapsed();
-    println!("Added {} peptides to trie in {:.4} sec", trie.len(), trie_build_duration.as_secs_f64());
+    println!("Read {} sequences and built trie for {} peptides in {:.4} sec", n, trie.len(), trie_build_duration.as_secs_f64());
 
     // println!("STATS: {:#?}", trie.stats().expect("Trie was empty!"));
     collect_and_output_stats(&trie);
