@@ -54,7 +54,8 @@ fn main() {
     println!("Added {} peptides to trie in {:.4} sec", trie.len(), trie_build_duration.as_secs_f64());
 
     // println!("STATS: {:#?}", trie.stats().expect("Trie was empty!"));
-    //
+    collect_and_output_stats(&trie);
+
     // println!("PEPTIDES: {:#?}", trie);
 
     // Annotate proteins
@@ -81,4 +82,17 @@ fn main() {
     // println!("Read and annotated {num_entries} entries in {:.4} sec", annotate_duration.as_secs_f64());
     println!("Parsed and annotated {num_entries} entries with {total_edges} edges in {:.4} sec", annotate_duration.as_secs_f64());
     println!("Total execution time: {:.4} sec", start.elapsed().as_secs_f64());
+}
+
+fn collect_and_output_stats(peptides: &PeptideTrie) -> Option<()> {
+    let stats = peptides.stats()?;
+
+    println!("STATS: {stats}");
+
+    let overhead_bytes_per_key_byte =
+        (stats.tree.mem_usage as f64) / (stats.leaf.sum_key_bytes as f64);
+
+    println!("{overhead_bytes_per_key_byte} bytes of overhead, per byte of key stored in tree");
+
+    Some(())
 }

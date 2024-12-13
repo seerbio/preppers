@@ -25,7 +25,7 @@ impl PeptideTrie {
         }
     }
 
-    pub fn insert(&mut self, peptide: &[u8]) {
+    pub fn insert(&mut self, peptide: &[u8]) -> PeptideId {
         let id = self._next_id;
         self._next_id = id + 1;
         self._tree.insert(CString::new(peptide).expect("Invalid string!"), id);
