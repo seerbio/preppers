@@ -27,7 +27,8 @@ impl PeptideTrie {
     }
 
     pub fn insert(&mut self, peptide: &[u8]) -> PeptideId {
-        let key = CString::new(peptide).expect(&format!("Invalid peptide sequence {:?}", &peptide));
+        // Build reversed key to store in the trie
+        let key = CString::new(peptide.iter().rev().copied().collect::<Vec<_>>()).expect(&format!("Invalid peptide sequence {:?}", &peptide));
 
         let entry = self._tree.try_entry_ref(&key);
 
@@ -74,7 +75,10 @@ fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>
     let mut res = Vec::new();
 
     // Filter the sequence
-    let filtseq = seq.iter().filter(|&c| !b"\n\r".contains(c)).copied().collect::<Vec<_>>();
+    let mut filtseq = seq.iter().filter(|&c| !b"\n\r".contains(c)).copied().collect::<Vec<_>>();
+
+    // Iterate backwards to match key storage
+    filtseq.reverse();
 
     for i in 0..filtseq.len() {
         // SAFETY: Since we have an immutable reference to the root node, that
