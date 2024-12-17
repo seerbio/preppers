@@ -35,7 +35,13 @@ fn _annotate_fasta(peptides: &Bound<PyList>, fasta: Fasta) -> PyResult<(Vec<(Str
         peptide_ids.push((sequence.to_string(), id));
     }
 
-    let iter = preppers::fasta::annotate_fasta(&fasta, trie);
+    let opt_iter = preppers::fasta::annotate_fasta(&fasta, trie);
+
+    if opt_iter.is_none() {
+        return Err(pyo3::exceptions::PyValueError::new_err("Unable to annotate FASTA file"));
+    }
+
+    let iter = opt_iter.unwrap();
 
     Ok(
         (

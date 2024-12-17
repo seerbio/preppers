@@ -272,17 +272,32 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: N
 mod tests {
     use blart::TreeMap;
     use crate::{annotate_sequence, PeptideTrie};
+    use crate::fasta::annotate_fasta;
 
     #[test]
     fn test_empty_tree() {
         let tree = PeptideTrie::new();
 
-        let root = TreeMap::into_raw(tree._tree).unwrap();
+        let fasta = crate::fasta::Fasta::new(">HEADER\nANYSEQUENCE".as_bytes().into());
 
-        let res = annotate_sequence(
-            &root,
-            "ANYSEQUENCE".as_bytes(),
+        let res = annotate_fasta(
+            &fasta,
+            tree,
         );
+
+        assert!(res.is_none());
+
+        // If we start parsing the fasta anyway:
+        //
+        // assert!(res.is_some());
+        //
+        // let coll_res: Vec<_> = res.unwrap().collect();
+        //
+        // assert_eq!(coll_res.len(), 1);
+        //
+        // let prepped_entry = coll_res.iter().next().unwrap();
+        //
+        // assert!(prepped_entry.peptides().is_empty());
     }
 
     #[test]
