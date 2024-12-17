@@ -129,8 +129,17 @@ unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, Pepti
                 // containing function
                 do_inner_lookup(seq, start, depth, pessimistic_depth, res, t)
             }
-            ConcreteNodePtr::LeafNode(_) => {
-                panic!("Encountered leaf unexpectedly!")
+            ConcreteNodePtr::LeafNode(l) => unsafe {
+                // SAFETY: The safety requirement is covered by the safety requirement on the
+                // containing function
+                handle_leaf(
+                    &seq[start..],
+                    res,
+                    l,
+                    if pessimistic_depth < depth { pessimistic_depth } else { depth }
+                );
+
+                None
             }
         };
 
@@ -304,14 +313,25 @@ mod tests {
     fn test_singleton_tree() {
         let mut tree = PeptideTrie::new();
 
-        tree.insert("APEPTIDEK".as_bytes());
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
 
-        let root = TreeMap::into_raw(tree._tree).unwrap();
+        let fasta = crate::fasta::Fasta::new(">HEADER\nAPEPTIDEKANOTHER".as_bytes().into());
 
-        let res = annotate_sequence(
-            &root,
-            "ANYSEQUENCE".as_bytes(),
+        let res = annotate_fasta(
+            &fasta,
+            tree,
         );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().iter().next().unwrap(), pep_id);
     }
 
     #[test]
