@@ -298,4 +298,38 @@ mod tests {
             "ANYSEQUENCE".as_bytes(),
         );
     }
+
+    #[test]
+    fn test_match_at_start() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("APEPTIDER".as_bytes());
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let res = annotate_sequence(
+            &root,
+            "APEPTIDEKANOTHER".as_bytes(),
+        );
+
+        assert!(res.contains(&pep_id));
+    }
+
+    #[test]
+    fn test_match_at_end() {
+        let mut tree = PeptideTrie::new();
+
+        tree.insert("APEPTIDEK".as_bytes());
+        let pep_id = tree.insert("ANOTHER".as_bytes());
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let res = annotate_sequence(
+            &root,
+            "APEPTIDEKANOTHER".as_bytes(),
+        );
+
+        assert!(res.contains(&pep_id));
+    }
 }
