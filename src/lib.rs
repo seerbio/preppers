@@ -270,10 +270,32 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: N
 
 #[cfg(test)]
 mod tests {
+    use blart::TreeMap;
+    use crate::{annotate_sequence, PeptideTrie};
 
-    // #[test]
-    // fn it_works() {
-    //     let result = add(2, 2);
-    //     assert_eq!(result, 4);
-    // }
+    #[test]
+    fn test_empty_tree() {
+        let tree = PeptideTrie::new();
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let res = annotate_sequence(
+            &root,
+            "ANYSEQUENCE".as_bytes(),
+        );
+    }
+
+    #[test]
+    fn test_singleton_tree() {
+        let mut tree = PeptideTrie::new();
+
+        tree.insert("APEPTIDEK".as_bytes());
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let res = annotate_sequence(
+            &root,
+            "ANYSEQUENCE".as_bytes(),
+        );
+    }
 }
