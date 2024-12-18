@@ -14,6 +14,9 @@ cargo run --example annotate_fasta $PEPTIDES_FILE $FASTA_FILE
 
 where `$PEPTIDES_FILE` is a file containing a list of peptides, one per line, and `$FASTA_FILE` is a FASTA file containing protein sequences.
 
+> [!NOTE]
+> To set up a Rust environment, follow the instructions [here](https://www.rust-lang.org/tools/install).
+
 ### As a Python library
 
 **Coming soon: CodeArtifact package**
@@ -21,8 +24,7 @@ where `$PEPTIDES_FILE` is a file containing a list of peptides, one per line, an
 For now, you can clone this repo and run:
 
 ```shell
-pip install maturin
-maturin develop
+maturin develop --release -m python/Cargo.toml
 ```
 
 and then in your Python code:
@@ -31,6 +33,9 @@ and then in your Python code:
 import preppers
 ```
 
+> [!NOTE]
+> To install `maturin`, create a virtual environment and run `pip install maturin`.
+
 ### As a Rust library
 
 Reference this repository in your `Cargo.toml`:
@@ -38,4 +43,24 @@ Reference this repository in your `Cargo.toml`:
 ```toml
 [dependencies]
 preppers = { git = "ssh://git@github.com/seerbio/preppers.git" }
+```
+
+## Running tests
+
+This package includes tests for functionality in Rust and Python.
+
+Rust tests:
+
+```shell
+cargo test
+```
+
+> [!NOTE]
+> To set up a Rust environment, follow the instructions [here](https://www.rust-lang.org/tools/install).
+
+Python tests:
+```shell
+maturin develop --release -m python/Cargo.toml
+cd python
+pytest
 ```
