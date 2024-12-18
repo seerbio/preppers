@@ -265,7 +265,7 @@ jobs:
         with:
           subject-path: 'wheels-*/*'
       - name: Clear old pip creds
-        run: pip config unset global.index-url
+        run: pip config unset global.index-url || true
       - name: Log into AWS CodeArtifact
         run: echo "MATURIN_PASSWORD=$(aws codeartifact get-authorization-token --domain seer --query authorizationToken --output text)" >> $GITHUB_ENV
       - name: Publish to CodeArtifact
