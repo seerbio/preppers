@@ -64,3 +64,10 @@ maturin develop --release -m python/Cargo.toml
 cd python
 pytest
 ```
+
+## Releasing a new version
+
+1. Update the version in `Cargo.toml` and `python/Cargo.toml`; these should match!
+2. Commit the changes and push/merge to the `main` branch (this may require a PR).
+3. Create a new release in GitHub with the same version number.
+4. GitHub Actions will automatically build and publish the new version to CodeArtifact.
