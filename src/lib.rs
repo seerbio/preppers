@@ -204,11 +204,6 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
 
     let new_depth = depth + matched_bytes;
 
-    if start + new_depth >= seq.len() {
-        // println!("too close to end at depth {}", depth);
-        return None
-    }
-
     // The point where we will start checking the key, if we find a leaf node
     let check_start = if was_optimistic {
         pessimistic_depth
@@ -227,6 +222,10 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
             _ => { panic!("Found non-leaf for null byte!") }
         }
     );
+
+    if start + new_depth >= seq.len() {
+        return None
+    }
 
     let next = inner_node.lookup_child(seq[start + new_depth])?;
 
