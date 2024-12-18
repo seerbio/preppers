@@ -367,4 +367,25 @@ mod tests {
 
         assert!(res.contains(&pep_id));
     }
+
+    /// Test for a bug that occurs when a peptide is found at the end of the (reversed) sequence
+    /// and we must check for a terminating null byte in the trie. This only occurs when there
+    /// is a second, longer peptide sequence (so, due to the organization of the trie, this
+    /// means the matched peptide is a suffix of some other peptide).
+    #[test]
+    fn test_match_at_end_complex() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("AAPEPTIDEK".as_bytes());
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let res = annotate_sequence(
+            &root,
+            "APEPTIDEKANOTHER".as_bytes(),
+        );
+
+        assert!(res.contains(&pep_id));
+    }
 }
