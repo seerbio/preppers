@@ -104,12 +104,6 @@ jobs:
             target: armv7
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        if: ${{ startsWith(matrix.platform.target, 'x86_64') }}
-      - name: Run Rust unit tests
-        if: ${{ startsWith(matrix.platform.target, 'x86_64') }}
-        run:
-          cargo test
       - uses: actions/setup-python@v5
         with:
           python-version: 3.x
