@@ -129,8 +129,17 @@ unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, Pepti
                 // containing function
                 do_inner_lookup(seq, start, depth, pessimistic_depth, res, t)
             }
-            ConcreteNodePtr::LeafNode(_) => {
-                panic!("Encountered leaf unexpectedly!")
+            ConcreteNodePtr::LeafNode(l) => unsafe {
+                // SAFETY: The safety requirement is covered by the safety requirement on the
+                // containing function
+                handle_leaf(
+                    &seq[start..],
+                    res,
+                    l,
+                    if pessimistic_depth < depth { pessimistic_depth } else { depth }
+                );
+
+                None
             }
         };
 
@@ -270,10 +279,113 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: N
 
 #[cfg(test)]
 mod tests {
+    use blart::TreeMap;
+    use crate::{annotate_sequence, PeptideTrie};
+    use crate::fasta::annotate_fasta;
 
-    // #[test]
-    // fn it_works() {
-    //     let result = add(2, 2);
-    //     assert_eq!(result, 4);
-    // }
+    #[test]
+    fn test_empty_tree() {
+        let tree = PeptideTrie::new();
+
+        let fasta = crate::fasta::Fasta::new(">HEADER\nANYSEQUENCE".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_none());
+
+        // If we start parsing the fasta anyway:
+        //
+        // assert!(res.is_some());
+        //
+        // let coll_res: Vec<_> = res.unwrap().collect();
+        //
+        // assert_eq!(coll_res.len(), 1);
+        //
+        // let prepped_entry = coll_res.iter().next().unwrap();
+        //
+        // assert!(prepped_entry.peptides().is_empty());
+    }
+
+    #[test]
+    fn test_singleton_tree() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+
+        let fasta = crate::fasta::Fasta::new(">HEADER\nAPEPTIDEKANOTHER".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().iter().next().unwrap(), pep_id);
+    }
+
+    #[test]
+    fn test_match_at_start() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("APEPTIDER".as_bytes());
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let res = annotate_sequence(
+            &root,
+            "APEPTIDEKANOTHER".as_bytes(),
+        );
+
+        assert!(res.contains(&pep_id));
+    }
+
+    #[test]
+    fn test_match_at_end() {
+        let mut tree = PeptideTrie::new();
+
+        tree.insert("APEPTIDEK".as_bytes());
+        let pep_id = tree.insert("ANOTHER".as_bytes());
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let res = annotate_sequence(
+            &root,
+            "APEPTIDEKANOTHER".as_bytes(),
+        );
+
+        assert!(res.contains(&pep_id));
+    }
+
+    /// Test for a bug that occurs when a peptide is found at the end of the (reversed) sequence
+    /// and we must check for a terminating null byte in the trie. This only occurs when there
+    /// is a second, longer peptide sequence (so, due to the organization of the trie, this
+    /// means the matched peptide is a suffix of some other peptide).
+    #[test]
+    fn test_match_at_end_complex() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("AAPEPTIDEK".as_bytes());
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let res = annotate_sequence(
+            &root,
+            "APEPTIDEKANOTHER".as_bytes(),
+        );
+
+        assert!(res.contains(&pep_id));
+    }
 }

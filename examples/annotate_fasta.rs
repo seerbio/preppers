@@ -74,7 +74,7 @@ fn main() {
     println!("Read FASTA in {:.4} sec", fasta_read_duration.as_secs_f64());
 
     // let prots = fasta.iter();
-    let prots = annotate_fasta(&fasta, trie);
+    let prots = annotate_fasta(&fasta, trie).unwrap();
 
     let mut num_entries : u64 = 0;
     let mut total_edges : u64 = 0;

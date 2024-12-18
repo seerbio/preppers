@@ -13,8 +13,8 @@ pub fn read_fasta(fasta_path: PathBuf) -> Fasta {
     }
 }
 
-pub fn annotate_fasta<'a>(fasta: &'a Fasta, peptides: PeptideTrie) -> impl Iterator<Item=PreppedFastaEntry<'a>> {
-    annotate_iter(fasta.iter(), TreeMap::into_raw(peptides._tree).expect("Error! No peptides to annotate!"))
+pub fn annotate_fasta<'a>(fasta: &'a Fasta, peptides: PeptideTrie) -> Option<impl Iterator<Item=PreppedFastaEntry<'a>>> {
+    Some(annotate_iter(fasta.iter(), TreeMap::into_raw(peptides._tree)?))
 }
 
 fn annotate_iter<'a, T: Iterator<Item=PlainFastaEntry<'a>>, const N: usize>(iter: T, peptides: OpaqueNodePtr<CString, PeptideId, N>) -> impl Iterator<Item=PreppedFastaEntry<'a>> {
