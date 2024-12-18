@@ -265,7 +265,7 @@ jobs:
         with:
           subject-path: 'wheels-*/*'
       - name: Log into AWS CodeArtifact
-        run: echo "MATURIN_PASSWORD=$(aws codeartifact get-authorization-token --domain [your code artifact domain] --query authorizationToken --output text)" >> $GITHUB_ENV
+        run: echo "MATURIN_PASSWORD=$(aws codeartifact get-authorization-token --domain seer --query authorizationToken --output text)" >> $GITHUB_ENV
       - name: Publish to CodeArtifact
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: PyO3/maturin-action@v1
