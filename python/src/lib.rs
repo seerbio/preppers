@@ -1,11 +1,18 @@
-use std::collections::BTreeMap;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyDict, PyIterator, PyList, PyString, PyTuple};
+use pyo3::types::{IntoPyDict, PyList};
 use pyo3::wrap_pyfunction;
-use preppers::{PeptideTrie, PeptideId};
-use preppers::fasta::{read_fasta, Fasta, FastaEntry, PreppedFastaEntry};
 
-/// Annotates a FASTA file.
+use ::preppers::fasta::{read_fasta, Fasta, FastaEntry, PreppedFastaEntry};
+use ::preppers::{PeptideId, PeptideTrie};
+
+/// Annotates a FASTA file
+///
+/// Parameters
+/// ----------
+/// peptides: [str]
+///     A list of peptide sequence strings
+/// input: str
+///     The path to the FASTA file
 #[pyfunction]
 fn annotate_fasta<'a>(peptides: &Bound<'a, PyList>, input: &str) -> PyResult<(Vec<(String, PeptideId)>, Vec<PreppedFastaEntryCopy>)> {
     let fasta = read_fasta(input.into());
@@ -13,7 +20,14 @@ fn annotate_fasta<'a>(peptides: &Bound<'a, PyList>, input: &str) -> PyResult<(Ve
     _annotate_fasta(peptides, fasta)
 }
 
-/// Annotates a FASTA file.
+/// Annotates a FASTA file, given as a byte array
+///
+/// Parameters
+/// ----------
+/// peptides: [str]
+///     A list of peptide sequence strings
+/// input: str
+///     The path to the FASTA file
 #[pyfunction]
 fn annotate_fasta_bytes(peptides: &Bound<PyList>, input: &[u8]) -> PyResult<(Vec<(String, PeptideId)>, Vec<PreppedFastaEntryCopy>)> {
     let fasta = Fasta::new(input.to_vec());
@@ -35,7 +49,7 @@ fn _annotate_fasta(peptides: &Bound<PyList>, fasta: Fasta) -> PyResult<(Vec<(Str
         peptide_ids.push((sequence.to_string(), id));
     }
 
-    let opt_iter = preppers::fasta::annotate_fasta(&fasta, trie);
+    let opt_iter = ::preppers::fasta::annotate_fasta(&fasta, trie);
 
     if opt_iter.is_none() {
         return Err(pyo3::exceptions::PyValueError::new_err("Unable to annotate FASTA file"));
@@ -82,8 +96,8 @@ impl PreppedFastaEntryCopy {
     }
 
     #[getter]
-    fn peptides(&self) -> Vec<PeptideId> {
-        self.peptides.clone()
+    fn peptides(&self) -> &Vec<PeptideId> {
+        &self.peptides
     }
 
     fn __repr__(&self) -> String {
@@ -91,9 +105,9 @@ impl PreppedFastaEntryCopy {
     }
 }
 
-/// This module is implemented in Rust.
-#[pymodule]
-fn preppyrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+/// Python wrapper around the "Preppers" Rust library
+#[pymodule(name="preppers")]
+fn preppers(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(annotate_fasta, m)?)?;
     m.add_function(wrap_pyfunction!(annotate_fasta_bytes, m)?)
 }
