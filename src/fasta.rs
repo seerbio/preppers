@@ -3,7 +3,6 @@ use super::{annotate_sequence, PeptideId, PeptideTrie};
 use blart::{OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
 use std::path::PathBuf;
-use std::time::Instant;
 
 pub fn read_fasta(fasta_path: PathBuf) -> Fasta {
     let fasta_bytes = slurp_file(fasta_path);
