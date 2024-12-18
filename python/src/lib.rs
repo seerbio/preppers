@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyList};
 use pyo3::wrap_pyfunction;
@@ -14,8 +15,8 @@ use ::preppers::{PeptideId, PeptideTrie};
 /// input: str
 ///     The path to the FASTA file
 #[pyfunction]
-fn annotate_fasta<'a>(peptides: &Bound<'a, PyList>, input: &str) -> PyResult<(Vec<(String, PeptideId)>, Vec<PreppedFastaEntryCopy>)> {
-    let fasta = read_fasta(input.into());
+fn annotate_fasta<'a>(peptides: &Bound<'a, PyList>, input: &Bound<'a, PyAny>) -> PyResult<(Vec<(String, PeptideId)>, Vec<PreppedFastaEntryCopy>)> {
+    let fasta = read_fasta(PathBuf::from(input.str()?.to_str()?));
 
     _annotate_fasta(peptides, fasta)
 }
