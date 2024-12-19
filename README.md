@@ -1,6 +1,27 @@
-Preppers is a tool for *pr*otein to *pep*tide mapping, written in *R*u*s*t
+<img alt="scry logo" src="./static/preppers-logo.jpeg" height="128" align="left" style="margin: 8px">
+
+**Preppers** is a tool for *pr*otein to *pep*tide mapping, written in *R*u*s*t.
+It is designed for extreme speed and efficiency, using the *adaptive radix tree* implementation from [`blart`](https://github.com/declanvk/blart).
 
 ## Usage
+
+### As a Python library
+
+For ease of use, Preppers includes Python bindings which can be installed
+from AWS CodeArtifact.
+
+To install, run:
+
+```shell
+aws codeartifact login --tool pip --repository seer_ds --domain seer --domain-owner 718843040700 --region us-west-2
+pip install preppers
+```
+
+and then in your Python code:
+
+```python
+import preppers
+```
 
 ### As a command line tool
 
@@ -17,28 +38,9 @@ where `$PEPTIDES_FILE` is a file containing a list of peptides, one per line, an
 > [!NOTE]
 > To set up a Rust environment, follow the instructions [here](https://www.rust-lang.org/tools/install).
 
-### As a Python library
-
-**Coming soon: CodeArtifact package**
-
-For now, you can clone this repo and run:
-
-```shell
-maturin develop --release -m python/Cargo.toml
-```
-
-and then in your Python code:
-
-```python
-import preppers
-```
-
-> [!NOTE]
-> To install `maturin`, create a virtual environment and run `pip install maturin`.
-
 ### As a Rust library
 
-Reference this repository in your `Cargo.toml`:
+To use Preppers in a Rust project, reference this repository in your `Cargo.toml`:
 
 ```toml
 [dependencies]
@@ -55,9 +57,6 @@ Rust tests:
 cargo test
 ```
 
-> [!NOTE]
-> To set up a Rust environment, follow the instructions [here](https://www.rust-lang.org/tools/install).
-
 Python tests:
 ```shell
 maturin develop --release -m python/Cargo.toml
@@ -65,9 +64,18 @@ cd python
 pytest
 ```
 
+> [!NOTE]
+> For development, you will need to first install a Rust environment by following the instructions [here](https://www.rust-lang.org/tools/install).
+>
+> To install `maturin`, create a virtual environment and run `pip install maturin`.
+
 ## Releasing a new version
 
 1. Update the version in `Cargo.toml` and `python/Cargo.toml`; these should match!
+
+    > [!IMPORTANT]
+    > Be sure to pick an appropriate [semantic version](https://semver.org/) for the new release!
 2. Commit the changes and push/merge to the `main` branch (this may require a PR).
-3. Create a new release in GitHub with the same version number.
+3. Create a new release in GitHub with the same version number using the format `vX.Y.Z`.
+   Click "auto-generate release notes" to automatically document merged PRs.
 4. GitHub Actions will automatically build and publish the new version to CodeArtifact.
