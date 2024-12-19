@@ -73,8 +73,9 @@ pytest
 
 1. Update the version in `Cargo.toml` and `python/Cargo.toml`; these should match!
 
-    > [!IMPORTANT]
-    > Be sure to pick an appropriate [semantic version](https://semver.org/) for the new release!
+> [!IMPORTANT]
+> Be sure to pick an appropriate [semantic version](https://semver.org/) for the new release!
+
 2. Commit the changes and push/merge to the `main` branch (this may require a PR).
 3. Create a new release in GitHub with the same version number using the format `vX.Y.Z`.
    Click "auto-generate release notes" to automatically document merged PRs.
