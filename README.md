@@ -35,7 +35,7 @@ cargo run --example annotate_fasta $PEPTIDES_FILE $FASTA_FILE
 
 where `$PEPTIDES_FILE` is a file containing a list of peptides, one per line, and `$FASTA_FILE` is a FASTA file containing protein sequences.
 
-> [!NOTE]
+> [!TIP]
 > To set up a Rust environment, follow the instructions [here](https://www.rust-lang.org/tools/install).
 
 ### As a Rust library
@@ -64,7 +64,7 @@ cd python
 pytest
 ```
 
-> [!NOTE]
+> [!TIP]
 > For development, you will need to first install a Rust environment by following the instructions [here](https://www.rust-lang.org/tools/install).
 >
 > To install `maturin`, create a virtual environment and run `pip install maturin`.
