@@ -272,7 +272,7 @@ jobs:
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: PyO3/maturin-action@v1
         env:
-          MATURIN_REPOSITORY: https://seer-718843040700.d.codeartifact.us-west-2.amazonaws.com/pypi/seer_ds/
+          MATURIN_REPOSITORY_URL: https://seer-718843040700.d.codeartifact.us-west-2.amazonaws.com/pypi/seer_ds/
           MATURIN_USERNAME: aws
         with:
           command: upload
