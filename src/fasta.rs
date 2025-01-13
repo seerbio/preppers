@@ -152,27 +152,32 @@ impl<'a> FastaEntry<'a> for PreppedFastaEntry<'a> {
 
 #[cfg(test)]
 mod tests {
+    use blart::AsBytes;
     use super::{Fasta, FastaEntry};
 
     #[test]
     fn test_parse_fasta() {
         /// Test parsing a basic fasta returns the correct result
-        let fasta = Fasta::new(b">header1\nAAA\n>header2\nBBB\n".to_vec());
+        let fasta = Fasta::new(b">header1\nAAA\nAAA\n>header2\nBBBBBB\n".to_vec());
         let mut iter = fasta.iter();
 
         let entry1 = iter.next().unwrap();
         assert_eq!(entry1.header(), b">header1");
-        assert_eq!(entry1.sequence(), b"AAA");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry1.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"AAAAAA");
 
         let entry2 = iter.next().unwrap();
         assert_eq!(entry2.header(), b">header2");
-        assert_eq!(entry2.sequence(), b"BBB");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry2.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBBBBB");
 
         assert!(iter.next().is_none());
     }
 
     #[test]
-    fn test_parse_fasta_end_no_newline() {
+    fn test_parse_fasta_no_end_newline() {
         /// Test parsing a basic fasta returns the correct result when the file
         /// is missing a newline at the end
         let fasta = Fasta::new(b">header1\nAAA\n>header2\nBBB".to_vec());
@@ -181,6 +186,44 @@ mod tests {
         // We only care about the last entry
         let entry = iter.last().expect("FASTA should not be empty!");
         assert_eq!(entry.header(), b">header2");
-        assert_eq!(entry.sequence(), b"BBB");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBB");
+    }
+
+    #[test]
+    fn test_parse_fasta_windows() {
+        /// Test parsing a fasta with windows line endings returns the correct result
+        let fasta = Fasta::new(b">header1\r\nAAA\r\nAAA\r\n>header2\r\nBBBBBB\r\n".to_vec());
+        let mut iter = fasta.iter();
+
+        let entry1 = iter.next().unwrap();
+        assert_eq!(entry1.header(), b">header1");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry1.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"AAAAAA");
+
+        let entry2 = iter.next().unwrap();
+        assert_eq!(entry2.header(), b">header2");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry2.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBBBBB");
+
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_parse_fasta_no_end_newline_windows() {
+        /// Test parsing a fasta with widnows line endings returns the correct result
+        /// when the file is missing a newline at the end
+        let fasta = Fasta::new(b">header1\r\nAAA\r\n>header2\r\nBBB".to_vec());
+        let mut iter = fasta.iter();
+
+        // We only care about the last entry
+        let entry = iter.last().expect("FASTA should not be empty!");
+        assert_eq!(entry.header(), b">header2");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBB");
     }
 }
