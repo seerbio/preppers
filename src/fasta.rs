@@ -149,3 +149,25 @@ impl<'a> FastaEntry<'a> for PreppedFastaEntry<'a> {
         self.entry.sequence()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{Fasta, FastaEntry};
+
+    #[test]
+    fn test_parse_fasta() {
+        /// Test parsing a basic fasta returns the correct result
+        let fasta = Fasta::new(b">header1\nAAA\n>header2\nBBB\n".to_vec());
+        let mut iter = fasta.iter();
+
+        let entry1 = iter.next().unwrap();
+        assert_eq!(entry1.header(), b">header1");
+        assert_eq!(entry1.sequence(), b"AAA");
+
+        let entry2 = iter.next().unwrap();
+        assert_eq!(entry2.header(), b">header2");
+        assert_eq!(entry2.sequence(), b"BBB");
+
+        assert!(iter.next().is_none());
+    }
+}
