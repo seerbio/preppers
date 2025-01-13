@@ -71,7 +71,7 @@ pytest
 
 ## Releasing a new version
 
-1. Update the version in `Cargo.toml` and `python/Cargo.toml`; these should match!
+1. Update the version in `Cargo.toml` and `python/Cargo.toml`; these should match! Be sure to update the dependency version as well!
 
 > [!IMPORTANT]
 > Be sure to pick an appropriate [semantic version](https://semver.org/) for the new release!

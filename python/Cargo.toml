@@ -1,6 +1,6 @@
 [package]
 name = "preppy"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -9,5 +9,5 @@ name = "preppers"  # mane of the python module
 crate-type = ["cdylib"]
 
 [dependencies]
-preppers = { version = "0.1.0", path = ".." }
+preppers = { version = "0.1.1", path = ".." }
 pyo3 = "0.23.1"
