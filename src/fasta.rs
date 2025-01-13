@@ -226,4 +226,31 @@ mod tests {
         // ignore newline characters in sequence; these are stripped downstream
         assert_eq!(entry.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBB");
     }
+
+    #[test]
+    fn test_parse_fasta_mixed() {
+        /// Test parsing a fasta with mixed line endings returns the correct result
+        let fasta = Fasta::new(b">header1\nAAA\nAAA\n>header2\r\nBBBBBB\r\n>header3\rCCCCCC\r".to_vec());
+        let mut iter = fasta.iter();
+
+        let entry1 = iter.next().unwrap();
+        assert_eq!(entry1.header(), b">header1");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry1.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"AAAAAA");
+
+        let entry2 = iter.next().unwrap();
+        assert_eq!(entry2.header(), b">header2");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry2.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBBBBB");
+
+        let entry3 = iter.next().unwrap();
+        assert_eq!(entry3.header(), b">header3");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry3.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"CCCCCC");
+
+        assert!(iter.next().is_none());
+    }
 }
