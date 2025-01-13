@@ -46,6 +46,10 @@ impl Fasta {
 
 impl<'a> Fasta {
     pub fn iter(&'a self) -> FastaIterator<'a> {
+        /// Iterate over the entries in the FASTA, returning entries
+        /// as slices into the FASTA's contents; the returned sequences
+        /// thus may contain newline characters.
+
         FastaIterator {
             fasta: self,
             byte_index: 0,
@@ -85,7 +89,9 @@ impl<'a> Iterator for FastaIterator<'a> {
         if !self.eof() && *self.peek() != b'>' {
             panic!("Did not find FASTA header at index {}", self.byte_index)
         }
-        let h_start = self.byte_index; // Increment to omit ">" from header
+        let h_start = self.byte_index;  // This will include the header's '>'
+
+        // Read until the next newline (or EOF)
         while !self.eof() && !b"\n\r".contains(self.peek()) {
             self.byte_index += 1
         }
@@ -94,16 +100,19 @@ impl<'a> Iterator for FastaIterator<'a> {
 
         // Read sequence
         let s_start = self.byte_index + 1;
+
+        // Read until the next header (or EOF); don't worry about newlines
         while !self.eof() && *self.peek() != b'>' {
             self.byte_index += 1
         }
-        let s_end = self.byte_index - 1;
+        let s_end = self.byte_index;
+
         let sequence = &self.fasta.file_bytes[s_start..s_end];
 
         Some(
             PlainFastaEntry {
                 header,
-                sequence,  // TODO: must handle filtering newline bytes!!!
+                sequence
             }
         )
     }
