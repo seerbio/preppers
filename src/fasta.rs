@@ -46,6 +46,10 @@ impl Fasta {
 
 impl<'a> Fasta {
     pub fn iter(&'a self) -> FastaIterator<'a> {
+        /// Iterate over the entries in the FASTA, returning entries
+        /// as slices into the FASTA's contents; the returned sequences
+        /// thus may contain newline characters.
+
         FastaIterator {
             fasta: self,
             byte_index: 0,
@@ -85,7 +89,9 @@ impl<'a> Iterator for FastaIterator<'a> {
         if !self.eof() && *self.peek() != b'>' {
             panic!("Did not find FASTA header at index {}", self.byte_index)
         }
-        let h_start = self.byte_index; // Increment to omit ">" from header
+        let h_start = self.byte_index;  // This will include the header's '>'
+
+        // Read until the next newline (or EOF)
         while !self.eof() && !b"\n\r".contains(self.peek()) {
             self.byte_index += 1
         }
@@ -94,16 +100,19 @@ impl<'a> Iterator for FastaIterator<'a> {
 
         // Read sequence
         let s_start = self.byte_index + 1;
+
+        // Read until the next header (or EOF); don't worry about newlines
         while !self.eof() && *self.peek() != b'>' {
             self.byte_index += 1
         }
-        let s_end = self.byte_index - 1;
+        let s_end = self.byte_index;
+
         let sequence = &self.fasta.file_bytes[s_start..s_end];
 
         Some(
             PlainFastaEntry {
                 header,
-                sequence,  // TODO: must handle filtering newline bytes!!!
+                sequence
             }
         )
     }
@@ -147,5 +156,110 @@ impl<'a> FastaEntry<'a> for PreppedFastaEntry<'a> {
 
     fn sequence(&self) -> &'a [u8] {
         self.entry.sequence()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use blart::AsBytes;
+    use super::{Fasta, FastaEntry};
+
+    #[test]
+    fn test_parse_fasta() {
+        /// Test parsing a basic fasta returns the correct result
+        let fasta = Fasta::new(b">header1\nAAA\nAAA\n>header2\nBBBBBB\n".to_vec());
+        let mut iter = fasta.iter();
+
+        let entry1 = iter.next().unwrap();
+        assert_eq!(entry1.header(), b">header1");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry1.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"AAAAAA");
+
+        let entry2 = iter.next().unwrap();
+        assert_eq!(entry2.header(), b">header2");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry2.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBBBBB");
+
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_parse_fasta_no_end_newline() {
+        /// Test parsing a basic fasta returns the correct result when the file
+        /// is missing a newline at the end
+        let fasta = Fasta::new(b">header1\nAAA\n>header2\nBBB".to_vec());
+        let mut iter = fasta.iter();
+
+        // We only care about the last entry
+        let entry = iter.last().expect("FASTA should not be empty!");
+        assert_eq!(entry.header(), b">header2");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBB");
+    }
+
+    #[test]
+    fn test_parse_fasta_windows() {
+        /// Test parsing a fasta with windows line endings returns the correct result
+        let fasta = Fasta::new(b">header1\r\nAAA\r\nAAA\r\n>header2\r\nBBBBBB\r\n".to_vec());
+        let mut iter = fasta.iter();
+
+        let entry1 = iter.next().unwrap();
+        assert_eq!(entry1.header(), b">header1");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry1.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"AAAAAA");
+
+        let entry2 = iter.next().unwrap();
+        assert_eq!(entry2.header(), b">header2");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry2.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBBBBB");
+
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_parse_fasta_no_end_newline_windows() {
+        /// Test parsing a fasta with widnows line endings returns the correct result
+        /// when the file is missing a newline at the end
+        let fasta = Fasta::new(b">header1\r\nAAA\r\n>header2\r\nBBB".to_vec());
+        let mut iter = fasta.iter();
+
+        // We only care about the last entry
+        let entry = iter.last().expect("FASTA should not be empty!");
+        assert_eq!(entry.header(), b">header2");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBB");
+    }
+
+    #[test]
+    fn test_parse_fasta_mixed() {
+        /// Test parsing a fasta with mixed line endings returns the correct result
+        let fasta = Fasta::new(b">header1\nAAA\nAAA\n>header2\r\nBBBBBB\r\n>header3\rCCCCCC\r".to_vec());
+        let mut iter = fasta.iter();
+
+        let entry1 = iter.next().unwrap();
+        assert_eq!(entry1.header(), b">header1");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry1.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"AAAAAA");
+
+        let entry2 = iter.next().unwrap();
+        assert_eq!(entry2.header(), b">header2");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry2.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBBBBB");
+
+        let entry3 = iter.next().unwrap();
+        assert_eq!(entry3.header(), b">header3");
+
+        // ignore newline characters in sequence; these are stripped downstream
+        assert_eq!(entry3.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"CCCCCC");
+
+        assert!(iter.next().is_none());
     }
 }
