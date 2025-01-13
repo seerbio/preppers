@@ -170,4 +170,17 @@ mod tests {
 
         assert!(iter.next().is_none());
     }
+
+    #[test]
+    fn test_parse_fasta_end_no_newline() {
+        /// Test parsing a basic fasta returns the correct result when the file
+        /// is missing a newline at the end
+        let fasta = Fasta::new(b">header1\nAAA\n>header2\nBBB".to_vec());
+        let mut iter = fasta.iter();
+
+        // We only care about the last entry
+        let entry = iter.last().expect("FASTA should not be empty!");
+        assert_eq!(entry.header(), b">header2");
+        assert_eq!(entry.sequence(), b"BBB");
+    }
 }
