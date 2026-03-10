@@ -120,9 +120,9 @@ impl<'a> Iterator for FastaIterator<'a> {
     }
 }
 
-pub trait FastaEntry<'a> {
-    fn header(&self) -> &'a [u8];
-    fn sequence(&self) -> &'a [u8];
+pub trait FastaEntry {
+    fn header(&self) -> &[u8];
+    fn sequence(&self) -> &[u8];
 }
 
 pub struct PlainFastaEntry<'a> {
@@ -130,7 +130,7 @@ pub struct PlainFastaEntry<'a> {
     sequence: &'a [u8]
 }
 
-impl<'a> FastaEntry<'a> for PlainFastaEntry<'a> {
+impl<'a> FastaEntry for PlainFastaEntry<'a> {
     fn header(&self) -> &'a [u8] {
         &self.header
     }
@@ -156,13 +156,13 @@ impl PreppedFastaEntry<'_> {
     }
 }
 
-impl<'a> FastaEntry<'a> for PreppedFastaEntry<'a> {
-    fn header(&self) -> &'a [u8] {
+impl FastaEntry for PreppedFastaEntry<'_> {
+    fn header(&self) -> &[u8] {
         self.entry.header()
     }
 
-    fn sequence(&self) -> &'a [u8] {
-        self.entry.sequence()
+    fn sequence(&self) -> &[u8] {
+        self.sequence.as_ref()
     }
 }
 
