@@ -1,4 +1,4 @@
-<img alt="scry logo" src="./static/preppers-logo.jpeg" height="128" align="left" style="margin: 8px">
+<img alt="preppers logo" src="./static/preppers-logo.jpeg" height="128" align="left" style="margin: 8px">
 
 **Preppers** is a tool for *pr*otein to *pep*tide mapping, written in *R*u*s*t.
 It is designed for extreme speed and efficiency, using the *adaptive radix tree* implementation from [`blart`](https://github.com/declanvk/blart).
