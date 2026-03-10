@@ -135,7 +135,8 @@ unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, Pepti
                 // SAFETY: The safety requirement is covered by the safety requirement on the
                 // containing function
                 handle_leaf(
-                    &seq[start..],
+                    seq,
+                    start,
                     res,
                     l,
                     if pessimistic_depth < depth { pessimistic_depth } else { depth }
@@ -219,7 +220,7 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
             ConcreteNodePtr::LeafNode(n) => {
                 // SAFETY: The safety requirement is covered by the safety requirement on the
                 // containing function
-                unsafe { handle_leaf(&seq[start..], res, n, check_start); }
+                unsafe { handle_leaf(seq, start, res, n, check_start); }
             }
             _ => { panic!("Found non-leaf for null byte!") }
         }
@@ -239,7 +240,7 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
                 ConcreteNodePtr::LeafNode(l) => {
                     // SAFETY: The safety requirement is covered by the safety requirement on the
                     // containing function
-                    unsafe { handle_leaf(&seq[start..], res, l, check_start); }
+                    unsafe { handle_leaf(seq, start, res, l, check_start); }
                     None
                 }
                 _ => { panic!("Unwrapped unexpected node type!") }
@@ -258,7 +259,7 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
 ///
 /// # Safety
 ///  - No other access or mutation to the `t` Node can happen while this function runs.
-unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideHit>, t: NodePtr<N, LeafNode<CString, PeptideId, N>>, check_start: usize) {
+unsafe fn handle_leaf<const N: usize>(seq: &[u8], start: usize, res: &mut Vec<PeptideHit>, t: NodePtr<N, LeafNode<CString, PeptideId, N>>, check_start: usize) {
     // SAFETY: The lifetime produced from this is bounded to this scope and does not
     // escape. Further, no other code mutates the node referenced, which is further
     // enforced the "no concurrent reads or writes" requirement on the
@@ -267,14 +268,16 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideHit>, t: 
 
     let key = inner_node.key_ref();
     let key_bytes = key.as_bytes();
+    let seq_suffix = &seq[start..];
 
-    if seq.len() < key_bytes.len() {
+    if seq_suffix.len() < key_bytes.len() {
         // Not enough bytes to match
         return
     }
 
-    if seq[check_start..].starts_with(&key_bytes[check_start..]) {
-        res.push((*inner_node.value_ref(), todo!()));
+    if seq_suffix[check_start..].starts_with(&key_bytes[check_start..]) {
+        let forward_start = seq.len() - (start + key_bytes.len());
+        res.push((*inner_node.value_ref(), forward_start));
     }
 }
 
@@ -333,6 +336,115 @@ mod tests {
 
         assert_eq!(prepped_entry.peptides().len(), 1);
         assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0));
+    }
+
+    #[test]
+    fn test_match_post_normalization_0() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("APEPTIDER".as_bytes());
+
+        let fasta = crate::fasta::Fasta::new(">HEADER\nAPEPTIDEK\nANOTHER".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0));
+    }
+
+    #[test]
+    fn test_match_post_normalization_1() {
+        let mut tree = PeptideTrie::new();
+
+        tree.insert("APEPTIDER".as_bytes());
+        let pep_id = tree.insert("ANOTHER".as_bytes());
+
+        let fasta = crate::fasta::Fasta::new(">HEADER\nAPEPTIDEK\nANOTHER".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 9));
+    }
+
+    #[test]
+    fn test_match_post_normalization_2() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("APEPTIDER".as_bytes());
+
+        let fasta = crate::fasta::Fasta::new(">HEADER\nAPEPT\nIDEK\nANOTHER".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0));
+    }
+
+    #[test]
+    fn test_match_post_normalization_3() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("APEPTIDER".as_bytes());
+
+        let fasta = crate::fasta::Fasta::new(">HEADER\r\nAPEPT\r\nIDEK\r\nANOTHER".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0));
     }
 
     #[test]
@@ -349,7 +461,24 @@ mod tests {
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.iter().any(|(id, _)| *id == pep_id));
+        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 0));
+    }
+
+    #[test]
+    fn test_match_full_sequence() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("APEPTIDER".as_bytes());
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let (_, res) = annotate_sequence(
+            &root,
+            "APEPTIDEK".as_bytes(),
+        );
+
+        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 0));
     }
 
     #[test]
@@ -366,7 +495,7 @@ mod tests {
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.iter().any(|(id, _)| *id == pep_id));
+        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 9));
     }
 
     /// Test for a bug that occurs when a peptide is found at the end of the (reversed) sequence
@@ -387,6 +516,25 @@ mod tests {
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.iter().any(|(id, _)| *id == pep_id));
+        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 0));
+    }
+
+    #[test]
+    fn test_match_multiple() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("ANOTHER".as_bytes());
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let (_, res) = annotate_sequence(
+            &root,
+            "APEPTIDEKAPEPTIDEK".as_bytes(),
+        );
+
+        assert_eq!(res.len(), 2);
+        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 0));
+        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 9));
     }
 }
