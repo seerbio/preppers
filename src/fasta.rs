@@ -24,12 +24,12 @@ fn annotate_iter<'a, T: Iterator<Item=PlainFastaEntry<'a>>, const N: usize>(iter
 }
 
 fn annotate<'a, const N: usize>(entry: PlainFastaEntry<'a>, peptides: &OpaqueNodePtr<CString, PeptideId, N>) -> PreppedFastaEntry<'a> {
-    let (seq, peps) = annotate_sequence(peptides, entry.sequence());
+    let (seq, idxs) = annotate_sequence(peptides, entry.sequence());
 
     PreppedFastaEntry{
         entry: entry,
-        sequence: seq.into_boxed_slice(),
-        peptides: peps,
+        sequence: seq,
+        peptide_indices: idxs,
     }
 }
 
@@ -140,19 +140,34 @@ impl<'a> FastaEntry for PlainFastaEntry<'a> {
     }
 }
 
+pub type PeptideHit = (PeptideId, usize);
+
 pub struct PreppedFastaEntry<'a> {
     /// Zero-copy reference to the original FASTA entry
     entry: PlainFastaEntry<'a>,
 
     /// Owned copy of the sequence, post-normalization
-    sequence: Box<[u8]>,
+    sequence: Vec<u8>,
 
-    peptides: Vec<PeptideId>,
+    peptide_indices: Vec<PeptideHit>,
 }
 
 impl PreppedFastaEntry<'_> {
-    pub fn peptides(&self) -> Iter<'_, PeptideId> {
-        self.peptides.iter()
+    pub fn peptides(&self) -> impl ExactSizeIterator<Item=&PeptideId> {
+        self.peptide_indices.iter().map(|(id, _)| id)
+    }
+
+    pub fn peptide_indices(&self) -> Iter<'_, PeptideHit> {
+        self.peptide_indices.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a PreppedFastaEntry<'_> {
+    type Item = &'a PeptideHit;
+    type IntoIter = Iter<'a, PeptideHit>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.peptide_indices()
     }
 }
 
@@ -168,8 +183,8 @@ impl FastaEntry for PreppedFastaEntry<'_> {
 
 #[cfg(test)]
 mod tests {
-    use blart::AsBytes;
     use super::{Fasta, FastaEntry};
+    use blart::AsBytes;
 
     #[test]
     fn test_parse_fasta() {

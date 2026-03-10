@@ -8,6 +8,7 @@ use blart::visitor::{TreeStats, TreeStatsCollector};
 use blart::{ConcreteNodePtr, InnerNode, LeafNode, Node, NodePtr, NodeType, OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
 use blart::map::EntryRef;
+use crate::fasta::PeptideHit;
 
 // Types
 pub type PeptideId = u64;
@@ -72,7 +73,7 @@ impl PeptideTrie {
 ///
 /// The given slice `seq` will be filtered to remove any newline characters before processing.
 /// This filtered sequence is returned along with the peptide IDs.
-fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8]) -> (Vec<u8>, Vec<PeptideId>) {
+fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8]) -> (Vec<u8>, Vec<PeptideHit>) {
     let mut res = Vec::new();
 
     // Filter the sequence
@@ -104,7 +105,7 @@ fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>
 ///  - This function cannot be called concurrently with any mutating operation
 ///    on `root` or any child node of `root`. This function will arbitrarily
 ///    read to any child in the given tree.
-unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8], start: usize, res: &mut Vec<PeptideId>) {
+unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8], start: usize, res: &mut Vec<PeptideHit>) {
     let mut depth = 0;
     let mut pessimistic_depth = 0;
     let mut current_node = *root;
@@ -165,7 +166,7 @@ unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, Pepti
 ///
 /// # Safety
 ///  - No other access or mutation to the `t` Node can happen while this function runs.
-unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N>, const N: usize>(seq: &[u8], start: usize, depth: usize, pessimistic_depth: usize, res: &mut Vec<PeptideId>, t: NodePtr<N, T>)
+unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N>, const N: usize>(seq: &[u8], start: usize, depth: usize, pessimistic_depth: usize, res: &mut Vec<PeptideHit>, t: NodePtr<N, T>)
     -> Option<(OpaqueNodePtr<CString, PeptideId, N>, usize, bool)>
 {
     // SAFETY: The lifetime produced from this is bounded to this scope and does not
@@ -257,7 +258,7 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
 ///
 /// # Safety
 ///  - No other access or mutation to the `t` Node can happen while this function runs.
-unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: NodePtr<N, LeafNode<CString, PeptideId, N>>, check_start: usize) {
+unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideHit>, t: NodePtr<N, LeafNode<CString, PeptideId, N>>, check_start: usize) {
     // SAFETY: The lifetime produced from this is bounded to this scope and does not
     // escape. Further, no other code mutates the node referenced, which is further
     // enforced the "no concurrent reads or writes" requirement on the
@@ -273,7 +274,7 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: N
     }
 
     if seq[check_start..].starts_with(&key_bytes[check_start..]) {
-        res.push(*inner_node.value_ref());
+        res.push((*inner_node.value_ref(), todo!()));
     }
 }
 
@@ -348,7 +349,7 @@ mod tests {
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.contains(&pep_id));
+        assert!(res.iter().any(|(id, _)| *id == pep_id));
     }
 
     #[test]
@@ -365,7 +366,7 @@ mod tests {
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.contains(&pep_id));
+        assert!(res.iter().any(|(id, _)| *id == pep_id));
     }
 
     /// Test for a bug that occurs when a peptide is found at the end of the (reversed) sequence
@@ -386,6 +387,6 @@ mod tests {
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.contains(&pep_id));
+        assert!(res.iter().any(|(id, _)| *id == pep_id));
     }
 }
