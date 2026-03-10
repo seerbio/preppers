@@ -26,10 +26,10 @@ def test_annotate_fasta_filtered(peptides, fasta_file):
     result = preppers.annotate_fasta(
         peptides,
         fasta_file,
-        r"(?<=[KR])(?!A)",
+        r"(?<=[KR])(?!O)",
         2,
     )
-    assert len(result[1]) == 1
+    assert len(result[1][0].peptides) == 1
 
 def assert_annotation_result(result):
     assert isinstance(result, tuple), "Result should be a tuple"
@@ -71,7 +71,7 @@ import pytest
 @pytest.fixture()
 def fasta_bytes() -> bytes:
     fasta_content = """>sequence1
-APEPTIDEKANOTHER
+APEPTIDEKORANOTHER
 """
     return fasta_content.encode('utf-8')
 
