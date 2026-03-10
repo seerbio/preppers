@@ -14,6 +14,23 @@ def test_annotate_fasta(peptides, fasta_file):
     )
     assert_annotation_result(result)
 
+def test_annotate_fasta_filtered(peptides, fasta_file):
+    result = preppers.annotate_fasta(
+        peptides,
+        fasta_file,
+        r"(?<=[KR])(?!P)",
+        2,
+    )
+    assert_annotation_result(result)
+
+    result = preppers.annotate_fasta(
+        peptides,
+        fasta_file,
+        r"(?<=[KR])(?!A)",
+        2,
+    )
+    assert len(result[1]) == 1
+
 def assert_annotation_result(result):
     assert isinstance(result, tuple), "Result should be a tuple"
     assert len(result) == 2, "Result tuple should have two elements"

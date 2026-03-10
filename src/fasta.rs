@@ -539,7 +539,7 @@ mod tests {
         let res = annotate_fasta_filtered(
             &fasta,
             tree,
-            Regex::new("(?:(?<=[KR])(?!P))|(?<=^M)").unwrap(),
+            Regex::new("(?<=[KR])(?!P)|(?<=^M)").unwrap(),
             2
         );
 
