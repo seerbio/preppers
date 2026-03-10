@@ -47,11 +47,10 @@ impl Fasta {
 
 
 impl<'a> Fasta {
+    /// Iterate over the entries in the FASTA, returning entries
+    /// as slices into the FASTA's contents; the returned sequences
+    /// thus may contain newline characters.
     pub fn iter(&'a self) -> FastaIterator<'a> {
-        /// Iterate over the entries in the FASTA, returning entries
-        /// as slices into the FASTA's contents; the returned sequences
-        /// thus may contain newline characters.
-
         FastaIterator {
             fasta: self,
             byte_index: 0,
@@ -186,9 +185,9 @@ mod tests {
     use super::{Fasta, FastaEntry};
     use blart::AsBytes;
 
+    /// Test parsing a basic fasta returns the correct result
     #[test]
     fn test_parse_fasta() {
-        /// Test parsing a basic fasta returns the correct result
         let fasta = Fasta::new(b">header1\nAAA\nAAA\n>header2\nBBBBBB\n".to_vec());
         let mut iter = fasta.iter();
 
@@ -207,10 +206,10 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
+    /// Test parsing a basic fasta returns the correct result when the file
+    /// is missing a newline at the end
     #[test]
     fn test_parse_fasta_no_end_newline() {
-        /// Test parsing a basic fasta returns the correct result when the file
-        /// is missing a newline at the end
         let fasta = Fasta::new(b">header1\nAAA\n>header2\nBBB".to_vec());
         let mut iter = fasta.iter();
 
@@ -222,9 +221,9 @@ mod tests {
         assert_eq!(entry.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBB");
     }
 
+    /// Test parsing a fasta with windows line endings returns the correct result
     #[test]
     fn test_parse_fasta_windows() {
-        /// Test parsing a fasta with windows line endings returns the correct result
         let fasta = Fasta::new(b">header1\r\nAAA\r\nAAA\r\n>header2\r\nBBBBBB\r\n".to_vec());
         let mut iter = fasta.iter();
 
@@ -243,10 +242,10 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
+    /// Test parsing a fasta with widnows line endings returns the correct result
+    /// when the file is missing a newline at the end
     #[test]
     fn test_parse_fasta_no_end_newline_windows() {
-        /// Test parsing a fasta with widnows line endings returns the correct result
-        /// when the file is missing a newline at the end
         let fasta = Fasta::new(b">header1\r\nAAA\r\n>header2\r\nBBB".to_vec());
         let mut iter = fasta.iter();
 
@@ -258,9 +257,9 @@ mod tests {
         assert_eq!(entry.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"BBB");
     }
 
+    /// Test parsing a fasta with mixed line endings returns the correct result
     #[test]
     fn test_parse_fasta_mixed() {
-        /// Test parsing a fasta with mixed line endings returns the correct result
         let fasta = Fasta::new(b">header1\nAAA\nAAA\n>header2\r\nBBBBBB\r\n>header3\rCCCCCC\r".to_vec());
         let mut iter = fasta.iter();
 
