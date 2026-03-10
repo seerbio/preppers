@@ -18,7 +18,12 @@ use ::preppers::{PeptideId, PeptideTrie};
 /// input: str
 ///     The path to the FASTA file
 /// enzyme_patt: str
-///     A RegEx string that will give a zero-width match at enzymatic cleavages (optional)
+///     A RegEx string that will give a zero-width match at enzymatic cleavages (optional).
+///
+///     Examples:
+///     - Strict Trypsin: ``r"(?<=[KR])(?!P)"``"
+///     - Trypsin(/P): ``r"(?<=[KR])"``
+///     - Strict Trypsin, allowing N-term met. excision: ``r"(?<=[KR])(?!P)|(?<=^M)"``
 /// require_termini: int
 ///     An integer in ``[0, 2]``, defining the required number of enzymatic matches for a peptide-
 ///     protein connection to be reported. Ignored when ``enzyme_patt`` is ``None``. When ``0``,
@@ -40,7 +45,12 @@ fn annotate_fasta<'a>(peptides: &Bound<'a, PyList>, input: &Bound<'a, PyAny>, en
 /// input: str
 ///     The path to the FASTA file
 /// enzyme_patt: str
-///     A RegEx string that will give a zero-width match at enzymatic cleavages (optional)
+///     A RegEx string that will give a zero-width match at enzymatic cleavages (optional).
+///
+///     Examples:
+///     - Strict Trypsin: ``r"(?<=[KR])(?!P)"``"
+///     - Trypsin(/P): ``r"(?<=[KR])"``
+///     - Strict Trypsin, allowing N-term met. excision: ``r"(?<=[KR])(?!P)|(?<=^M)"``
 /// require_termini: int
 ///     An integer in ``[0, 2]``, defining the required number of enzymatic matches for a peptide-
 ///     protein connection to be reported. Ignored when ``enzyme_patt`` is ``None``. When ``0``,
