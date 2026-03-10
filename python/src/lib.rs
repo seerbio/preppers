@@ -1,4 +1,3 @@
-use std::iter;
 use pyo3::prelude::*;
 use pyo3::types::{PyInt, PyList, PyString};
 use pyo3::wrap_pyfunction;
@@ -21,7 +20,7 @@ use ::preppers::{PeptideId, PeptideTrie};
 ///     A RegEx string that will give a zero-width match at enzymatic cleavages (optional).
 ///
 ///     Examples:
-///     - Strict Trypsin: ``r"(?<=[KR])(?!P)"``"
+///     - Strict Trypsin: ``r"(?<=[KR])(?!P)"``
 ///     - Trypsin(/P): ``r"(?<=[KR])"``
 ///     - Strict Trypsin, allowing N-term met. excision: ``r"(?<=[KR])(?!P)|(?<=^M)"``
 /// require_termini: int
@@ -48,7 +47,7 @@ fn annotate_fasta<'a>(peptides: &Bound<'a, PyList>, input: &Bound<'a, PyAny>, en
 ///     A RegEx string that will give a zero-width match at enzymatic cleavages (optional).
 ///
 ///     Examples:
-///     - Strict Trypsin: ``r"(?<=[KR])(?!P)"``"
+///     - Strict Trypsin: ``r"(?<=[KR])(?!P)"``
 ///     - Trypsin(/P): ``r"(?<=[KR])"``
 ///     - Strict Trypsin, allowing N-term met. excision: ``r"(?<=[KR])(?!P)|(?<=^M)"``
 /// require_termini: int
@@ -65,7 +64,8 @@ fn annotate_fasta_bytes(peptides: &Bound<PyList>, input: &[u8], enzyme_patt: Opt
 
 /// Annotates a FASTA file.
 fn _annotate_fasta(peptides: &Bound<PyList>, fasta: Fasta, enzyme_patt: Option<&Bound<PyString>>, require_termini: Option<&Bound<PyInt>>) -> PyResult<(Vec<(String, PeptideId)>, Vec<PreppedFastaEntryCopy>)> {
-    let n_req_termini = match require_termini {
+    // extract as i64 so we get the useful error message below
+    let n_req_termini: i64 = match require_termini {
         Some(req) => req.extract()?,
         None => 2,
     };
@@ -109,7 +109,7 @@ fn _annotate_fasta(peptides: &Bound<PyList>, fasta: Fasta, enzyme_patt: Option<&
                     }
                 };
 
-                let iter = match ::preppers::fasta::annotate_fasta_filtered(&fasta, trie, regex, n_req_termini) {
+                let iter = match ::preppers::fasta::annotate_fasta_filtered(&fasta, trie, regex, n_req_termini as u8) {
                     Some(iter) => iter,
                     None => return Err(pyo3::exceptions::PyValueError::new_err("No peptides!")),
                 };

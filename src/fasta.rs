@@ -20,8 +20,8 @@ pub fn annotate_fasta(fasta: &Fasta, peptides: PeptideTrie) -> Option<impl Itera
     Some(annotate_iter(fasta.iter(), TreeMap::into_raw(peptides._tree)?))
 }
 
-/// Annotate the fasta using peptides from the given trie, filtering results using the given pattern
-/// string. Returns `None` if the trie is empty.
+/// Annotate the fasta using peptides from the given trie, filtering results using the given regex.
+/// Returns `None` if the trie is empty.
 pub fn annotate_fasta_filtered(fasta: &Fasta, peptides: PeptideTrie, enzyme_patt: Regex, n_req_termini: u8) -> Option<impl Iterator<Item=PreppedFastaEntry<'_>>> {
     let iter = match annotate_fasta(fasta, peptides) {
         Some(iter) => iter,
@@ -138,7 +138,6 @@ pub trait FastaEntry {
     fn sequence(&self) -> &[u8];
 }
 
-#[derive(Debug)]
 pub struct PlainFastaEntry<'a> {
     header: &'a [u8],
     sequence: &'a [u8]
@@ -161,7 +160,6 @@ impl<'a> FastaEntry for PlainFastaEntry<'a> {
 /// match (inclusive), not one-past-the-end.
 pub type PeptideHit = (PeptideId, usize, usize);
 
-#[derive(Debug)]
 pub struct PreppedFastaEntry<'a> {
     /// Zero-copy reference to the original FASTA entry
     pub (crate) entry: PlainFastaEntry<'a>,
@@ -265,7 +263,7 @@ mod tests {
         assert!(iter.next().is_none());
     }
 
-    /// Test parsing a fasta with widnows line endings returns the correct result
+    /// Test parsing a fasta with Windows line endings returns the correct result
     /// when the file is missing a newline at the end
     #[test]
     fn test_parse_fasta_no_end_newline_windows() {
@@ -546,8 +544,6 @@ mod tests {
         assert!(res.is_some());
 
         let coll_res: Vec<_> = res.unwrap().collect();
-
-        println!("Filtered peptides: {:?}", coll_res);
 
         assert_eq!(coll_res.len(), 1);
 
