@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 argh = "0.1.12"
 blart = "=0.3.0"
+fancy-regex = "0.17.0"

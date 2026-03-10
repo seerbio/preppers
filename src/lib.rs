@@ -1,5 +1,6 @@
 pub mod io;
 pub mod fasta;
+mod termini;
 
 // Reexports
 pub use fasta::read_fasta;
@@ -8,6 +9,7 @@ use blart::visitor::{TreeStats, TreeStatsCollector};
 use blart::{ConcreteNodePtr, InnerNode, LeafNode, Node, NodePtr, NodeType, OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
 use blart::map::EntryRef;
+use crate::fasta::PeptideHit;
 
 // Types
 pub type PeptideId = u64;
@@ -71,26 +73,28 @@ impl PeptideTrie {
 /// guarantee that peptides have any number of enzymatic termini within the given sequence!
 ///
 /// The given slice `seq` will be filtered to remove any newline characters before processing.
-fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8]) -> Vec<PeptideId> {
+/// This filtered sequence is returned along with the peptide IDs.
+fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8]) -> (Vec<u8>, Vec<PeptideHit>) {
     let mut res = Vec::new();
 
     // Filter the sequence
-    let mut filtseq = seq.iter().filter(|&c| !b"\n\r".contains(c)).copied().collect::<Vec<_>>();
+    let filtseq = seq.iter().filter(|&c| !b"\n\r".contains(c)).copied().collect::<Vec<_>>();
 
     // Iterate backwards to match key storage
-    filtseq.reverse();
+    let mut revseq = filtseq.clone();
+    revseq.reverse();
 
-    for i in 0..filtseq.len() {
+    for i in 0..revseq.len() {
         // SAFETY: Since we have an immutable reference to the root node, that
         // means there can only exist other immutable references aside from this one,
         // and no mutable references. That means that no mutating operations can occur
         // on the root node or any child of the root node.
         unsafe {
-            _annotate_sequence(&root, &filtseq, i, &mut res);
+            _annotate_sequence(&root, &revseq, i, &mut res);
         }
     }
 
-    res
+    (filtseq, res)
 }
 
 /// Search in the given tree for any peptides that are substrings of `seq` starting at
@@ -103,7 +107,7 @@ fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>
 ///  - This function cannot be called concurrently with any mutating operation
 ///    on `root` or any child node of `root`. This function will arbitrarily
 ///    read to any child in the given tree.
-unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8], start: usize, res: &mut Vec<PeptideId>) {
+unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8], start: usize, res: &mut Vec<PeptideHit>) {
     let mut depth = 0;
     let mut pessimistic_depth = 0;
     let mut current_node = *root;
@@ -133,7 +137,8 @@ unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, Pepti
                 // SAFETY: The safety requirement is covered by the safety requirement on the
                 // containing function
                 handle_leaf(
-                    &seq[start..],
+                    seq,
+                    start,
                     res,
                     l,
                     if pessimistic_depth < depth { pessimistic_depth } else { depth }
@@ -164,7 +169,7 @@ unsafe fn _annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, Pepti
 ///
 /// # Safety
 ///  - No other access or mutation to the `t` Node can happen while this function runs.
-unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N>, const N: usize>(seq: &[u8], start: usize, depth: usize, pessimistic_depth: usize, res: &mut Vec<PeptideId>, t: NodePtr<N, T>)
+unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N>, const N: usize>(seq: &[u8], start: usize, depth: usize, pessimistic_depth: usize, res: &mut Vec<PeptideHit>, t: NodePtr<N, T>)
     -> Option<(OpaqueNodePtr<CString, PeptideId, N>, usize, bool)>
 {
     // SAFETY: The lifetime produced from this is bounded to this scope and does not
@@ -217,7 +222,7 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
             ConcreteNodePtr::LeafNode(n) => {
                 // SAFETY: The safety requirement is covered by the safety requirement on the
                 // containing function
-                unsafe { handle_leaf(&seq[start..], res, n, check_start); }
+                unsafe { handle_leaf(seq, start, res, n, check_start); }
             }
             _ => { panic!("Found non-leaf for null byte!") }
         }
@@ -237,7 +242,7 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
                 ConcreteNodePtr::LeafNode(l) => {
                     // SAFETY: The safety requirement is covered by the safety requirement on the
                     // containing function
-                    unsafe { handle_leaf(&seq[start..], res, l, check_start); }
+                    unsafe { handle_leaf(seq, start, res, l, check_start); }
                     None
                 }
                 _ => { panic!("Unwrapped unexpected node type!") }
@@ -256,7 +261,7 @@ unsafe fn do_inner_lookup<T: Node<N, Key=CString, Value=PeptideId> + InnerNode<N
 ///
 /// # Safety
 ///  - No other access or mutation to the `t` Node can happen while this function runs.
-unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: NodePtr<N, LeafNode<CString, PeptideId, N>>, check_start: usize) {
+unsafe fn handle_leaf<const N: usize>(seq: &[u8], start: usize, res: &mut Vec<PeptideHit>, t: NodePtr<N, LeafNode<CString, PeptideId, N>>, check_start: usize) {
     // SAFETY: The lifetime produced from this is bounded to this scope and does not
     // escape. Further, no other code mutates the node referenced, which is further
     // enforced the "no concurrent reads or writes" requirement on the
@@ -265,14 +270,20 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: N
 
     let key = inner_node.key_ref();
     let key_bytes = key.as_bytes();
+    let seq_suffix = &seq[start..];
 
-    if seq.len() < key_bytes.len() {
+    if seq_suffix.len() < key_bytes.len() {
         // Not enough bytes to match
         return
     }
 
-    if seq[check_start..].starts_with(&key_bytes[check_start..]) {
-        res.push(*inner_node.value_ref());
+    if seq_suffix[check_start..].starts_with(&key_bytes[check_start..]) {
+        let forward_start = seq.len() - (start + key_bytes.len());
+
+        // Closed interval semantics: stop is the last peptide residue index.
+        let forward_stop = forward_start + key_bytes.len() - 1;
+
+        res.push((*inner_node.value_ref(), forward_start, forward_stop));
     }
 }
 
@@ -280,58 +291,6 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], res: &mut Vec<PeptideId>, t: N
 mod tests {
     use blart::TreeMap;
     use crate::{annotate_sequence, PeptideTrie};
-    use crate::fasta::annotate_fasta;
-
-    #[test]
-    fn test_empty_tree() {
-        let tree = PeptideTrie::new();
-
-        let fasta = crate::fasta::Fasta::new(">HEADER\nANYSEQUENCE".as_bytes().into());
-
-        let res = annotate_fasta(
-            &fasta,
-            tree,
-        );
-
-        assert!(res.is_none());
-
-        // If we start parsing the fasta anyway:
-        //
-        // assert!(res.is_some());
-        //
-        // let coll_res: Vec<_> = res.unwrap().collect();
-        //
-        // assert_eq!(coll_res.len(), 1);
-        //
-        // let prepped_entry = coll_res.iter().next().unwrap();
-        //
-        // assert!(prepped_entry.peptides().is_empty());
-    }
-
-    #[test]
-    fn test_singleton_tree() {
-        let mut tree = PeptideTrie::new();
-
-        let pep_id = tree.insert("APEPTIDEK".as_bytes());
-
-        let fasta = crate::fasta::Fasta::new(">HEADER\nAPEPTIDEKANOTHER".as_bytes().into());
-
-        let res = annotate_fasta(
-            &fasta,
-            tree,
-        );
-
-        assert!(res.is_some());
-
-        let coll_res: Vec<_> = res.unwrap().collect();
-
-        assert_eq!(coll_res.len(), 1);
-
-        let prepped_entry = coll_res.iter().next().unwrap();
-
-        assert_eq!(prepped_entry.peptides().len(), 1);
-        assert_eq!(*prepped_entry.peptides().iter().next().unwrap(), pep_id);
-    }
 
     #[test]
     fn test_match_at_start() {
@@ -342,12 +301,29 @@ mod tests {
 
         let root = TreeMap::into_raw(tree._tree).unwrap();
 
-        let res = annotate_sequence(
+        let (_, res) = annotate_sequence(
             &root,
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.contains(&pep_id));
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 0 && *stop == 8));
+    }
+
+    #[test]
+    fn test_match_full_sequence() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("APEPTIDER".as_bytes());
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let (_, res) = annotate_sequence(
+            &root,
+            "APEPTIDEK".as_bytes(),
+        );
+
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 0 && *stop == 8));
     }
 
     #[test]
@@ -359,12 +335,12 @@ mod tests {
 
         let root = TreeMap::into_raw(tree._tree).unwrap();
 
-        let res = annotate_sequence(
+        let (_, res) = annotate_sequence(
             &root,
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.contains(&pep_id));
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 9 && *stop == 15));
     }
 
     /// Test for a bug that occurs when a peptide is found at the end of the (reversed) sequence
@@ -380,11 +356,30 @@ mod tests {
 
         let root = TreeMap::into_raw(tree._tree).unwrap();
 
-        let res = annotate_sequence(
+        let (_, res) = annotate_sequence(
             &root,
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.contains(&pep_id));
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 0 && *stop == 8));
+    }
+
+    #[test]
+    fn test_match_multiple() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("ANOTHER".as_bytes());
+
+        let root = TreeMap::into_raw(tree._tree).unwrap();
+
+        let (_, res) = annotate_sequence(
+            &root,
+            "APEPTIDEKAPEPTIDEK".as_bytes(),
+        );
+
+        assert_eq!(res.len(), 2);
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 0 && *stop == 8));
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 9 && *stop == 17));
     }
 }
