@@ -1,5 +1,6 @@
 pub mod io;
 pub mod fasta;
+mod termini;
 
 // Reexports
 pub use fasta::read_fasta;
@@ -278,7 +279,11 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], start: usize, res: &mut Vec<Pe
 
     if seq_suffix[check_start..].starts_with(&key_bytes[check_start..]) {
         let forward_start = seq.len() - (start + key_bytes.len());
-        res.push((*inner_node.value_ref(), forward_start));
+
+        // Closed interval semantics: stop is the last peptide residue index.
+        let forward_stop = forward_start + key_bytes.len() - 1;
+
+        res.push((*inner_node.value_ref(), forward_start, forward_stop));
     }
 }
 
@@ -286,168 +291,6 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], start: usize, res: &mut Vec<Pe
 mod tests {
     use blart::TreeMap;
     use crate::{annotate_sequence, PeptideTrie};
-    use crate::fasta::{annotate_fasta, FastaEntry};
-
-    #[test]
-    fn test_empty_tree() {
-        let tree = PeptideTrie::new();
-
-        let fasta = crate::fasta::Fasta::new(">HEADER\nANYSEQUENCE".as_bytes().into());
-
-        let res = annotate_fasta(
-            &fasta,
-            tree,
-        );
-
-        assert!(res.is_none());
-
-        // If we start parsing the fasta anyway:
-        //
-        // assert!(res.is_some());
-        //
-        // let coll_res: Vec<_> = res.unwrap().collect();
-        //
-        // assert_eq!(coll_res.len(), 1);
-        //
-        // let prepped_entry = coll_res.iter().next().unwrap();
-        //
-        // assert!(prepped_entry.peptides().is_empty());
-    }
-
-    #[test]
-    fn test_singleton_tree() {
-        let mut tree = PeptideTrie::new();
-
-        let pep_id = tree.insert("APEPTIDEK".as_bytes());
-
-        let fasta = crate::fasta::Fasta::new(">HEADER\nAPEPTIDEKANOTHER".as_bytes().into());
-
-        let res = annotate_fasta(
-            &fasta,
-            tree,
-        );
-
-        assert!(res.is_some());
-
-        let coll_res: Vec<_> = res.unwrap().collect();
-
-        assert_eq!(coll_res.len(), 1);
-
-        let prepped_entry = coll_res.iter().next().unwrap();
-
-        assert_eq!(prepped_entry.sequence(), "APEPTIDEKANOTHER".as_bytes());
-        assert_eq!(prepped_entry.peptides().len(), 1);
-        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
-        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0));
-    }
-
-    #[test]
-    fn test_match_post_normalization_0() {
-        let mut tree = PeptideTrie::new();
-
-        let pep_id = tree.insert("APEPTIDEK".as_bytes());
-        tree.insert("APEPTIDER".as_bytes());
-
-        let fasta = crate::fasta::Fasta::new(">HEADER\nAPEPTIDEK\nANOTHER".as_bytes().into());
-
-        let res = annotate_fasta(
-            &fasta,
-            tree,
-        );
-
-        assert!(res.is_some());
-
-        let coll_res: Vec<_> = res.unwrap().collect();
-
-        assert_eq!(coll_res.len(), 1);
-
-        let prepped_entry = coll_res.iter().next().unwrap();
-
-        assert_eq!(prepped_entry.peptides().len(), 1);
-        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
-        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0));
-    }
-
-    #[test]
-    fn test_match_post_normalization_1() {
-        let mut tree = PeptideTrie::new();
-
-        tree.insert("APEPTIDER".as_bytes());
-        let pep_id = tree.insert("ANOTHER".as_bytes());
-
-        let fasta = crate::fasta::Fasta::new(">HEADER\nAPEPTIDEK\nANOTHER".as_bytes().into());
-
-        let res = annotate_fasta(
-            &fasta,
-            tree,
-        );
-
-        assert!(res.is_some());
-
-        let coll_res: Vec<_> = res.unwrap().collect();
-
-        assert_eq!(coll_res.len(), 1);
-
-        let prepped_entry = coll_res.iter().next().unwrap();
-
-        assert_eq!(prepped_entry.peptides().len(), 1);
-        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
-        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 9));
-    }
-
-    #[test]
-    fn test_match_post_normalization_2() {
-        let mut tree = PeptideTrie::new();
-
-        let pep_id = tree.insert("APEPTIDEK".as_bytes());
-        tree.insert("APEPTIDER".as_bytes());
-
-        let fasta = crate::fasta::Fasta::new(">HEADER\nAPEPT\nIDEK\nANOTHER".as_bytes().into());
-
-        let res = annotate_fasta(
-            &fasta,
-            tree,
-        );
-
-        assert!(res.is_some());
-
-        let coll_res: Vec<_> = res.unwrap().collect();
-
-        assert_eq!(coll_res.len(), 1);
-
-        let prepped_entry = coll_res.iter().next().unwrap();
-
-        assert_eq!(prepped_entry.peptides().len(), 1);
-        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
-        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0));
-    }
-
-    #[test]
-    fn test_match_post_normalization_3() {
-        let mut tree = PeptideTrie::new();
-
-        let pep_id = tree.insert("APEPTIDEK".as_bytes());
-        tree.insert("APEPTIDER".as_bytes());
-
-        let fasta = crate::fasta::Fasta::new(">HEADER\r\nAPEPT\r\nIDEK\r\nANOTHER".as_bytes().into());
-
-        let res = annotate_fasta(
-            &fasta,
-            tree,
-        );
-
-        assert!(res.is_some());
-
-        let coll_res: Vec<_> = res.unwrap().collect();
-
-        assert_eq!(coll_res.len(), 1);
-
-        let prepped_entry = coll_res.iter().next().unwrap();
-
-        assert_eq!(prepped_entry.peptides().len(), 1);
-        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
-        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0));
-    }
 
     #[test]
     fn test_match_at_start() {
@@ -463,7 +306,7 @@ mod tests {
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 0));
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 0 && *stop == 8));
     }
 
     #[test]
@@ -480,7 +323,7 @@ mod tests {
             "APEPTIDEK".as_bytes(),
         );
 
-        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 0));
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 0 && *stop == 8));
     }
 
     #[test]
@@ -497,7 +340,7 @@ mod tests {
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 9));
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 9 && *stop == 15));
     }
 
     /// Test for a bug that occurs when a peptide is found at the end of the (reversed) sequence
@@ -518,7 +361,7 @@ mod tests {
             "APEPTIDEKANOTHER".as_bytes(),
         );
 
-        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 0));
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 0 && *stop == 8));
     }
 
     #[test]
@@ -536,7 +379,7 @@ mod tests {
         );
 
         assert_eq!(res.len(), 2);
-        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 0));
-        assert!(res.iter().any(|(id, idx)| *id == pep_id && *idx == 9));
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 0 && *stop == 8));
+        assert!(res.iter().any(|(id, start, stop)| *id == pep_id && *start == 9 && *stop == 17));
     }
 }

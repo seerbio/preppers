@@ -1,5 +1,5 @@
 use super::io::slurp_file;
-use super::{annotate_sequence, PeptideId, PeptideTrie};
+use super::{annotate_sequence, termini, PeptideId, PeptideTrie};
 use blart::{OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
 use std::path::PathBuf;
@@ -16,39 +16,19 @@ pub fn read_fasta(fasta_path: PathBuf) -> Fasta {
 
 /// Annotate the fasta using peptides from the given trie, returning all substring matches.
 /// Returns `None` if the trie is empty.
-pub fn annotate_fasta(fasta: &Fasta, peptides: PeptideTrie) -> Option<impl Iterator<Item=PreppedFastaEntry>> {
+pub fn annotate_fasta(fasta: &Fasta, peptides: PeptideTrie) -> Option<impl Iterator<Item=PreppedFastaEntry<'_>>> {
     Some(annotate_iter(fasta.iter(), TreeMap::into_raw(peptides._tree)?))
 }
 
 /// Annotate the fasta using peptides from the given trie, filtering results using the given pattern
 /// string. Returns `None` if the trie is empty.
-pub fn annotate_fasta_filtered(fasta: &Fasta, peptides: PeptideTrie, enzyme_patt: Regex, n_req_termini: u8) -> Option<impl Iterator<Item=PreppedFastaEntry>> {
+pub fn annotate_fasta_filtered(fasta: &Fasta, peptides: PeptideTrie, enzyme_patt: Regex, n_req_termini: u8) -> Option<impl Iterator<Item=PreppedFastaEntry<'_>>> {
     let iter = match annotate_fasta(fasta, peptides) {
         Some(iter) => iter,
         None => return None,
     };
 
-    Some(filter_entry_termini(iter, enzyme_patt, n_req_termini))
-}
-
-fn filter_entry_termini<'a, T: Iterator<Item=PreppedFastaEntry<'a>>>(iter: T, enzyme_patt: Regex, n_req_termini: u8) -> impl Iterator<Item=PreppedFastaEntry<'a>> {
-    iter.map(move |entry| filter_match_termini(entry, &enzyme_patt, n_req_termini))
-}
-
-fn filter_match_termini<'a>(mut entry: PreppedFastaEntry<'a>, enzyme_patt: &Regex, n_req_termini: u8) -> PreppedFastaEntry<'a> {
-    let seq = entry.sequence.as_slice();
-
-    entry
-        .peptide_indices
-        .retain(|hit| {
-            has_required_termini(hit, seq, enzyme_patt, n_req_termini)
-        });
-
-    entry
-}
-
-fn has_required_termini(peptide_hit: &PeptideHit, seq: &[u8], enzyme_patt: &Regex, n_req_termini: u8) -> bool {
-    todo!()
+    Some(termini::filter_entry_termini(iter, enzyme_patt, n_req_termini))
 }
 
 fn annotate_iter<'a, T: Iterator<Item=PlainFastaEntry<'a>>, const N: usize>(iter: T, peptides: OpaqueNodePtr<CString, PeptideId, N>) -> impl Iterator<Item=PreppedFastaEntry<'a>> {
@@ -173,21 +153,26 @@ impl<'a> FastaEntry for PlainFastaEntry<'a> {
     }
 }
 
-pub type PeptideHit = (PeptideId, usize);
+/// A peptide match represented as `(peptide_id, start, stop)`.
+///
+/// Index semantics are **closed**: `start` is the index of the first residue in
+/// the peptide match, and `stop` is the index of the last residue in the peptide
+/// match (inclusive), not one-past-the-end.
+pub type PeptideHit = (PeptideId, usize, usize);
 
 pub struct PreppedFastaEntry<'a> {
     /// Zero-copy reference to the original FASTA entry
-    entry: PlainFastaEntry<'a>,
+    pub (crate) entry: PlainFastaEntry<'a>,
 
     /// Owned copy of the sequence, post-normalization
-    sequence: Vec<u8>,
+    pub (crate) sequence: Vec<u8>,
 
-    peptide_indices: Vec<PeptideHit>,
+    pub (crate) peptide_indices: Vec<PeptideHit>,
 }
 
 impl PreppedFastaEntry<'_> {
     pub fn peptides(&self) -> impl ExactSizeIterator<Item=&PeptideId> {
-        self.peptide_indices.iter().map(|(id, _)| id)
+        self.peptide_indices.iter().map(|(id, _, _)| id)
     }
 
     pub fn peptide_indices(&self) -> Iter<'_, PeptideHit> {
@@ -216,8 +201,10 @@ impl FastaEntry for PreppedFastaEntry<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Fasta, FastaEntry};
+    use super::{annotate_fasta, annotate_fasta_filtered, Fasta, FastaEntry};
+    use crate::PeptideTrie;
     use blart::AsBytes;
+    use fancy_regex::Regex;
 
     /// Test parsing a basic fasta returns the correct result
     #[test]
@@ -245,7 +232,7 @@ mod tests {
     #[test]
     fn test_parse_fasta_no_end_newline() {
         let fasta = Fasta::new(b">header1\nAAA\n>header2\nBBB".to_vec());
-        let mut iter = fasta.iter();
+        let iter = fasta.iter();
 
         // We only care about the last entry
         let entry = iter.last().expect("FASTA should not be empty!");
@@ -281,7 +268,7 @@ mod tests {
     #[test]
     fn test_parse_fasta_no_end_newline_windows() {
         let fasta = Fasta::new(b">header1\r\nAAA\r\n>header2\r\nBBB".to_vec());
-        let mut iter = fasta.iter();
+        let iter = fasta.iter();
 
         // We only care about the last entry
         let entry = iter.last().expect("FASTA should not be empty!");
@@ -316,5 +303,195 @@ mod tests {
         assert_eq!(entry3.sequence().iter().filter(|b| !b"\r\n".contains(b)).copied().collect::<Vec<_>>().as_bytes(), b"CCCCCC");
 
         assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_empty_tree() {
+        let tree = PeptideTrie::new();
+
+        let fasta = Fasta::new(">HEADER\nANYSEQUENCE".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_none());
+
+        // If we start parsing the fasta anyway:
+        //
+        // assert!(res.is_some());
+        //
+        // let coll_res: Vec<_> = res.unwrap().collect();
+        //
+        // assert_eq!(coll_res.len(), 1);
+        //
+        // let prepped_entry = coll_res.iter().next().unwrap();
+        //
+        // assert!(prepped_entry.peptides().is_empty());
+    }
+
+    #[test]
+    fn test_singleton_tree() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+
+        let fasta = Fasta::new(">HEADER\nAPEPTIDEKANOTHER".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.sequence(), "APEPTIDEKANOTHER".as_bytes());
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0, 8));
+    }
+
+    #[test]
+    fn test_match_post_normalization_0() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("APEPTIDER".as_bytes());
+
+        let fasta = Fasta::new(">HEADER\nAPEPTIDEK\nANOTHER".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0, 8));
+    }
+
+    #[test]
+    fn test_match_post_normalization_1() {
+        let mut tree = PeptideTrie::new();
+
+        tree.insert("APEPTIDER".as_bytes());
+        let pep_id = tree.insert("ANOTHER".as_bytes());
+
+        let fasta = Fasta::new(">HEADER\nAPEPTIDEK\nANOTHER".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 9, 15));
+    }
+
+    #[test]
+    fn test_match_post_normalization_2() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("APEPTIDER".as_bytes());
+
+        let fasta = Fasta::new(">HEADER\nAPEPT\nIDEK\nANOTHER".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0, 8));
+    }
+
+    #[test]
+    fn test_match_post_normalization_3() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("APEPTIDER".as_bytes());
+
+        let fasta = Fasta::new(">HEADER\r\nAPEPT\r\nIDEK\r\nANOTHER".as_bytes().into());
+
+        let res = annotate_fasta(
+            &fasta,
+            tree,
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0, 8));
+    }
+
+    #[test]
+    fn test_annotate_filtered() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        tree.insert("PEPTIDER".as_bytes());
+
+        let fasta = Fasta::new(">HEADER\nPEPTIDEKPEPTIDERAPEPTIDEKANOTHER".as_bytes().into());
+
+        let res = annotate_fasta_filtered(
+            &fasta,
+            tree,
+            Regex::new("(?<=[KR])(?!P)").unwrap(),
+            2
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 1);
+        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 16, 24));
     }
 }
