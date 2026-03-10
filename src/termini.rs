@@ -7,7 +7,15 @@ pub fn filter_entry_termini<'a, T: Iterator<Item=PreppedFastaEntry<'a>>>(iter: T
 
 fn filter_match_termini<'a>(mut entry: PreppedFastaEntry<'a>, enzyme_patt: &Regex, n_req_termini: u8) -> PreppedFastaEntry<'a> {
     if n_req_termini > 0 {
-        let seq = entry.sequence.as_slice();
+        let seq = match std::str::from_utf8(&entry.sequence) {
+            Ok(s) => s,
+            Err(_) => {
+                // Can't interpret the sequence as UTF-8, so we can't filter it; drop _all_ matches.
+                entry.peptide_indices.clear();
+
+                return entry
+            },
+        };
 
         entry
             .peptide_indices
@@ -19,20 +27,15 @@ fn filter_match_termini<'a>(mut entry: PreppedFastaEntry<'a>, enzyme_patt: &Rege
     entry
 }
 
-pub fn has_required_termini(peptide_hit: &PeptideHit, seq: &[u8], enzyme_patt: &Regex, n_req_termini: u8) -> bool {
+pub fn has_required_termini(peptide_hit: &PeptideHit, seq: &str, enzyme_patt: &Regex, n_req_termini: u8) -> bool {
     match n_req_termini {
         0 => true,
         _ => num_termini(peptide_hit, seq, enzyme_patt) >= n_req_termini
     }
 }
 
-pub fn num_termini(peptide_hit: &PeptideHit, seq: &[u8], enzyme_patt: &Regex) -> u8 {
+pub fn num_termini(peptide_hit: &PeptideHit, seq: &str, enzyme_patt: &Regex) -> u8 {
     let (_, start, stop) = *peptide_hit;
-
-    let seq_str = match std::str::from_utf8(seq) {
-        Ok(s) => s,
-        Err(_) => return 0,
-    };
 
     let boundary_match = |idx: usize| -> bool {
         if idx == 0 || idx == seq.len() {
@@ -40,11 +43,11 @@ pub fn num_termini(peptide_hit: &PeptideHit, seq: &[u8], enzyme_patt: &Regex) ->
         }
 
         // If the given index isn't as character boundary we can't match it
-        if !seq_str.is_char_boundary(idx) {
+        if !seq.is_char_boundary(idx) {
             return false;
         }
 
-        match enzyme_patt.find_from_pos(seq_str, idx) {
+        match enzyme_patt.find_from_pos(seq, idx) {
             Ok(Some(m)) => m.start() == idx,
             _ => false,
         }
@@ -62,7 +65,7 @@ mod tests {
 
     #[test]
     fn test_num_termini_counts_matches() {
-        let seq = b"APEPTIDEKANOTHER";
+        let seq = "APEPTIDEKANOTHER";
         let enzyme_patt = Regex::new(r"(?<=[KR])").unwrap();
 
         assert_eq!(num_termini(&(999, 9, 15), seq, &enzyme_patt), 2);
@@ -71,7 +74,7 @@ mod tests {
 
     #[test]
     fn test_has_required_termini_matches_exact_positions() {
-        let seq = b"ABCDE";
+        let seq = "ABCDE";
 
         // Match peptides starting with C or ending with E
         let enzyme_patt = Regex::new(r"(?=C)|(?<=E)").unwrap();
@@ -82,7 +85,7 @@ mod tests {
 
     #[test]
     fn test_has_required_termini_accepts_sequence_boundaries() {
-        let seq = b"ABCDE";
+        let seq = "ABCDE";
 
         // Match peptides ending before an E
         let enzyme_patt = Regex::new(r"(?=E)").unwrap();
@@ -92,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_num_termini_counts_termini() {
-        let seq = b"ABCDE";
+        let seq = "ABCDE";
 
         // Match peptides ending before a Z
         let enzyme_patt = Regex::new(r"(?=Z)").unwrap();
@@ -103,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_num_termini_counts_n_term() {
-        let seq = b"ABCDE";
+        let seq = "ABCDE";
 
         // Match peptides ending before a Z
         let enzyme_patt = Regex::new(r"(?=Z)").unwrap();
@@ -114,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_num_termini_counts_c_term() {
-        let seq = b"ABCDE";
+        let seq = "ABCDE";
 
         // Match peptides ending before a Z
         let enzyme_patt = Regex::new(r"(?=Z)").unwrap();
