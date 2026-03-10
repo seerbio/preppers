@@ -138,6 +138,7 @@ pub trait FastaEntry {
     fn sequence(&self) -> &[u8];
 }
 
+#[derive(Debug)]
 pub struct PlainFastaEntry<'a> {
     header: &'a [u8],
     sequence: &'a [u8]
@@ -160,6 +161,7 @@ impl<'a> FastaEntry for PlainFastaEntry<'a> {
 /// match (inclusive), not one-past-the-end.
 pub type PeptideHit = (PeptideId, usize, usize);
 
+#[derive(Debug)]
 pub struct PreppedFastaEntry<'a> {
     /// Zero-copy reference to the original FASTA entry
     pub (crate) entry: PlainFastaEntry<'a>,
@@ -473,7 +475,7 @@ mod tests {
         let pep_id = tree.insert("APEPTIDEK".as_bytes());
         tree.insert("PEPTIDER".as_bytes());
 
-        let fasta = Fasta::new(">HEADER\nPEPTIDEKPEPTIDERAPEPTIDEKANOTHER".as_bytes().into());
+        let fasta = Fasta::new(">HEADER\nPEPTIDEKPEPTIDER\nAPEPT\nIDEKANOTHER".as_bytes().into());
 
         let res = annotate_fasta_filtered(
             &fasta,
@@ -491,7 +493,68 @@ mod tests {
         let prepped_entry = coll_res.iter().next().unwrap();
 
         assert_eq!(prepped_entry.peptides().len(), 1);
-        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
         assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 16, 24));
+    }
+
+    #[test]
+    fn test_annotate_filtered_semi() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        let pep_id_2 = tree.insert("PEPTIDER".as_bytes());
+
+        let fasta = Fasta::new(">HEADER\nPEPTIDEKPEPTIDER\nAPEPT\nIDEKANOTHER".as_bytes().into());
+
+        let res = annotate_fasta_filtered(
+            &fasta,
+            tree,
+            Regex::new("(?<=[KR])(?!P)").unwrap(),
+            1
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 2);
+        assert!(prepped_entry.peptide_indices().any(|h| *h == (pep_id, 16, 24)));
+        assert!(prepped_entry.peptide_indices().any(|h| *h == (pep_id_2, 8, 15)));
+    }
+
+    /// Test that we can use a carefully-crafted regex to permit treating n-term met. excision as an allowed
+    /// terminus without having to implement special-case logic.
+    #[test]
+    fn test_annotate_filtered_nterm_m() {
+        let mut tree = PeptideTrie::new();
+
+        let pep_id = tree.insert("APEPTIDEK".as_bytes());
+        let pep_id_2 = tree.insert("PEPTIDER".as_bytes());
+
+        let fasta = Fasta::new(">HEADER\nMPEPTIDER\nAPEPT\nIDEKANOTHER".as_bytes().into());
+
+        let res = annotate_fasta_filtered(
+            &fasta,
+            tree,
+            Regex::new("(?:(?<=[KR])(?!P))|(?<=^M)").unwrap(),
+            2
+        );
+
+        assert!(res.is_some());
+
+        let coll_res: Vec<_> = res.unwrap().collect();
+
+        println!("Filtered peptides: {:?}", coll_res);
+
+        assert_eq!(coll_res.len(), 1);
+
+        let prepped_entry = coll_res.iter().next().unwrap();
+
+        assert_eq!(prepped_entry.peptides().len(), 2);
+        assert!(prepped_entry.peptide_indices().any(|h| *h == (pep_id, 9, 17)));
+        assert!(prepped_entry.peptide_indices().any(|h| *h == (pep_id_2, 1, 8)));
     }
 }

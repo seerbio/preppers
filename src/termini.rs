@@ -48,7 +48,9 @@ pub fn num_termini(peptide_hit: &PeptideHit, seq: &[u8], enzyme_patt: &Regex) ->
         }
     };
 
-    boundary_match(start) as u8 + boundary_match(stop) as u8
+    // Note: we check for match at `stop + 1` because the zero-width match should occur _after_ the
+    // last character of the peptide.
+    boundary_match(start) as u8 + boundary_match(stop + 1) as u8
 }
 
 #[cfg(test)]
@@ -68,7 +70,9 @@ mod tests {
     #[test]
     fn test_has_required_termini_matches_exact_positions() {
         let seq = b"ABCDE";
-        let enzyme_patt = Regex::new(r"(?=C)|(?=E)").unwrap();
+
+        // Match peptides starting with C or ending with E
+        let enzyme_patt = Regex::new(r"(?=C)|(?<=E)").unwrap();
 
         assert!(has_required_termini(&(999, 2, 4), seq, &enzyme_patt, 2));
         assert!(!has_required_termini(&(999, 1, 4), seq, &enzyme_patt, 2));
@@ -77,8 +81,10 @@ mod tests {
     #[test]
     fn test_has_required_termini_accepts_sequence_boundaries() {
         let seq = b"ABCDE";
+
+        // Match peptides ending before an E
         let enzyme_patt = Regex::new(r"(?=E)").unwrap();
 
-        assert!(has_required_termini(&(999, 0, 4), seq, &enzyme_patt, 2));
+        assert!(has_required_termini(&(999, 0, 3), seq, &enzyme_patt, 2));
     }
 }
