@@ -77,18 +77,19 @@ fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>
     let mut res = Vec::new();
 
     // Filter the sequence
-    let mut filtseq = seq.iter().filter(|&c| !b"\n\r".contains(c)).copied().collect::<Vec<_>>();
+    let filtseq = seq.iter().filter(|&c| !b"\n\r".contains(c)).copied().collect::<Vec<_>>();
 
     // Iterate backwards to match key storage
-    filtseq.reverse();
+    let mut revseq = filtseq.clone();
+    revseq.reverse();
 
-    for i in 0..filtseq.len() {
+    for i in 0..revseq.len() {
         // SAFETY: Since we have an immutable reference to the root node, that
         // means there can only exist other immutable references aside from this one,
         // and no mutable references. That means that no mutating operations can occur
         // on the root node or any child of the root node.
         unsafe {
-            _annotate_sequence(&root, &filtseq, i, &mut res);
+            _annotate_sequence(&root, &revseq, i, &mut res);
         }
     }
 
@@ -285,7 +286,7 @@ unsafe fn handle_leaf<const N: usize>(seq: &[u8], start: usize, res: &mut Vec<Pe
 mod tests {
     use blart::TreeMap;
     use crate::{annotate_sequence, PeptideTrie};
-    use crate::fasta::annotate_fasta;
+    use crate::fasta::{annotate_fasta, FastaEntry};
 
     #[test]
     fn test_empty_tree() {
@@ -334,6 +335,7 @@ mod tests {
 
         let prepped_entry = coll_res.iter().next().unwrap();
 
+        assert_eq!(prepped_entry.sequence(), "APEPTIDEKANOTHER".as_bytes());
         assert_eq!(prepped_entry.peptides().len(), 1);
         assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
         assert_eq!(*prepped_entry.peptide_indices().next().unwrap(), (pep_id, 0));
