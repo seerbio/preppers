@@ -6,13 +6,15 @@ pub fn filter_entry_termini<'a, T: Iterator<Item=PreppedFastaEntry<'a>>>(iter: T
 }
 
 fn filter_match_termini<'a>(mut entry: PreppedFastaEntry<'a>, enzyme_patt: &Regex, n_req_termini: u8) -> PreppedFastaEntry<'a> {
-    let seq = entry.sequence.as_slice();
+    if n_req_termini > 0 {
+        let seq = entry.sequence.as_slice();
 
-    entry
-        .peptide_indices
-        .retain(|hit| {
-            has_required_termini(hit, seq, enzyme_patt, n_req_termini)
-        });
+        entry
+            .peptide_indices
+            .retain(|hit| {
+                has_required_termini(hit, seq, enzyme_patt, n_req_termini)
+            });
+    }
 
     entry
 }
