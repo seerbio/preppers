@@ -1,6 +1,6 @@
 [package]
 name = "preppy"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -10,5 +10,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 fancy-regex = "0.17.0"
-preppers = { version = "0.1.1", path = ".." }
+preppers = { version = "0.2.0", path = ".." }
 pyo3 = "0.28.2"
