@@ -4,6 +4,7 @@ use blart::{OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
 use std::path::PathBuf;
 use std::slice::Iter;
+use fancy_regex::Regex;
 
 pub fn read_fasta(fasta_path: PathBuf) -> Fasta {
     let fasta_bytes = slurp_file(fasta_path);
@@ -13,8 +14,41 @@ pub fn read_fasta(fasta_path: PathBuf) -> Fasta {
     }
 }
 
-pub fn annotate_fasta<'a>(fasta: &'a Fasta, peptides: PeptideTrie) -> Option<impl Iterator<Item=PreppedFastaEntry<'a>>> {
+/// Annotate the fasta using peptides from the given trie, returning all substring matches.
+/// Returns `None` if the trie is empty.
+pub fn annotate_fasta(fasta: &Fasta, peptides: PeptideTrie) -> Option<impl Iterator<Item=PreppedFastaEntry>> {
     Some(annotate_iter(fasta.iter(), TreeMap::into_raw(peptides._tree)?))
+}
+
+/// Annotate the fasta using peptides from the given trie, filtering results using the given pattern
+/// string. Returns `None` if the trie is empty.
+pub fn annotate_fasta_filtered(fasta: &Fasta, peptides: PeptideTrie, enzyme_patt: Regex, n_req_termini: u8) -> Option<impl Iterator<Item=PreppedFastaEntry>> {
+    let iter = match annotate_fasta(fasta, peptides) {
+        Some(iter) => iter,
+        None => return None,
+    };
+
+    Some(filter_entry_termini(iter, enzyme_patt, n_req_termini))
+}
+
+fn filter_entry_termini<'a, T: Iterator<Item=PreppedFastaEntry<'a>>>(iter: T, enzyme_patt: Regex, n_req_termini: u8) -> impl Iterator<Item=PreppedFastaEntry<'a>> {
+    iter.map(move |entry| filter_match_termini(entry, &enzyme_patt, n_req_termini))
+}
+
+fn filter_match_termini<'a>(mut entry: PreppedFastaEntry<'a>, enzyme_patt: &Regex, n_req_termini: u8) -> PreppedFastaEntry<'a> {
+    let seq = entry.sequence.as_slice();
+
+    entry
+        .peptide_indices
+        .retain(|hit| {
+            has_required_termini(hit, seq, enzyme_patt, n_req_termini)
+        });
+
+    entry
+}
+
+fn has_required_termini(peptide_hit: &PeptideHit, seq: &[u8], enzyme_patt: &Regex, n_req_termini: u8) -> bool {
+    todo!()
 }
 
 fn annotate_iter<'a, T: Iterator<Item=PlainFastaEntry<'a>>, const N: usize>(iter: T, peptides: OpaqueNodePtr<CString, PeptideId, N>) -> impl Iterator<Item=PreppedFastaEntry<'a>> {

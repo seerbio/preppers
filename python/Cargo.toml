@@ -9,5 +9,6 @@ name = "preppers"  # mane of the python module
 crate-type = ["cdylib"]
 
 [dependencies]
+fancy-regex = "0.17.0"
 preppers = { version = "0.1.1", path = ".." }
 pyo3 = "0.28.2"
