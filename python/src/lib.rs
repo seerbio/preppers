@@ -79,7 +79,7 @@ impl From<PreppedFastaEntry<'_>> for PreppedFastaEntryCopy {
         PreppedFastaEntryCopy {
             header: String::from_utf8(entry.header().to_vec()).unwrap(),
             sequence: String::from_utf8(entry.sequence().to_vec()).unwrap(),
-            peptides: entry.peptides().iter().map(|p| p.to_owned()).collect(),
+            peptides: entry.peptides().map(|p| p.to_owned()).collect(),
         }
     }
 }

@@ -3,6 +3,7 @@ use super::{annotate_sequence, PeptideId, PeptideTrie};
 use blart::{OpaqueNodePtr, TreeMap};
 use std::ffi::CString;
 use std::path::PathBuf;
+use std::slice::Iter;
 
 pub fn read_fasta(fasta_path: PathBuf) -> Fasta {
     let fasta_bytes = slurp_file(fasta_path);
@@ -23,10 +24,11 @@ fn annotate_iter<'a, T: Iterator<Item=PlainFastaEntry<'a>>, const N: usize>(iter
 }
 
 fn annotate<'a, const N: usize>(entry: PlainFastaEntry<'a>, peptides: &OpaqueNodePtr<CString, PeptideId, N>) -> PreppedFastaEntry<'a> {
-    let peps = annotate_sequence(peptides, entry.sequence());
+    let (seq, peps) = annotate_sequence(peptides, entry.sequence());
 
     PreppedFastaEntry{
         entry: entry,
+        sequence: seq.into_boxed_slice(),
         peptides: peps,
     }
 }
@@ -139,13 +141,18 @@ impl<'a> FastaEntry<'a> for PlainFastaEntry<'a> {
 }
 
 pub struct PreppedFastaEntry<'a> {
+    /// Zero-copy reference to the original FASTA entry
     entry: PlainFastaEntry<'a>,
+
+    /// Owned copy of the sequence, post-normalization
+    sequence: Box<[u8]>,
+
     peptides: Vec<PeptideId>,
 }
 
 impl PreppedFastaEntry<'_> {
-    pub fn peptides(&self) -> &Vec<PeptideId> {
-        &self.peptides
+    pub fn peptides(&self) -> Iter<'_, PeptideId> {
+        self.peptides.iter()
     }
 }
 

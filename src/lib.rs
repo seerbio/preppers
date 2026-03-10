@@ -71,7 +71,8 @@ impl PeptideTrie {
 /// guarantee that peptides have any number of enzymatic termini within the given sequence!
 ///
 /// The given slice `seq` will be filtered to remove any newline characters before processing.
-fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8]) -> Vec<PeptideId> {
+/// This filtered sequence is returned along with the peptide IDs.
+fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>, seq: &[u8]) -> (Vec<u8>, Vec<PeptideId>) {
     let mut res = Vec::new();
 
     // Filter the sequence
@@ -90,7 +91,7 @@ fn annotate_sequence<const N: usize>(root: &OpaqueNodePtr<CString, PeptideId, N>
         }
     }
 
-    res
+    (filtseq, res)
 }
 
 /// Search in the given tree for any peptides that are substrings of `seq` starting at
@@ -330,7 +331,7 @@ mod tests {
         let prepped_entry = coll_res.iter().next().unwrap();
 
         assert_eq!(prepped_entry.peptides().len(), 1);
-        assert_eq!(*prepped_entry.peptides().iter().next().unwrap(), pep_id);
+        assert_eq!(*prepped_entry.peptides().next().unwrap(), pep_id);
     }
 
     #[test]
@@ -342,7 +343,7 @@ mod tests {
 
         let root = TreeMap::into_raw(tree._tree).unwrap();
 
-        let res = annotate_sequence(
+        let (_, res) = annotate_sequence(
             &root,
             "APEPTIDEKANOTHER".as_bytes(),
         );
@@ -359,7 +360,7 @@ mod tests {
 
         let root = TreeMap::into_raw(tree._tree).unwrap();
 
-        let res = annotate_sequence(
+        let (_, res) = annotate_sequence(
             &root,
             "APEPTIDEKANOTHER".as_bytes(),
         );
@@ -380,7 +381,7 @@ mod tests {
 
         let root = TreeMap::into_raw(tree._tree).unwrap();
 
-        let res = annotate_sequence(
+        let (_, res) = annotate_sequence(
             &root,
             "APEPTIDEKANOTHER".as_bytes(),
         );
