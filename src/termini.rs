@@ -35,7 +35,7 @@ pub fn num_termini(peptide_hit: &PeptideHit, seq: &[u8], enzyme_patt: &Regex) ->
     };
 
     let boundary_match = |idx: usize| -> bool {
-        if idx == 0 || idx == seq.len() - 1 {
+        if idx == 0 || idx == seq.len() {
             return true;
         }
 
@@ -88,5 +88,38 @@ mod tests {
         let enzyme_patt = Regex::new(r"(?=E)").unwrap();
 
         assert!(has_required_termini(&(999, 0, 3), seq, &enzyme_patt, 2));
+    }
+
+    #[test]
+    fn test_num_termini_counts_termini() {
+        let seq = b"ABCDE";
+
+        // Match peptides ending before a Z
+        let enzyme_patt = Regex::new(r"(?=Z)").unwrap();
+
+        // Expect one match, from the peptide starting at the N-terminus
+        assert_eq!(num_termini(&(999, 0, 4), seq, &enzyme_patt), 2);
+    }
+
+    #[test]
+    fn test_num_termini_counts_n_term() {
+        let seq = b"ABCDE";
+
+        // Match peptides ending before a Z
+        let enzyme_patt = Regex::new(r"(?=Z)").unwrap();
+
+        // Expect one match, from the peptide starting at the N-terminus
+        assert_eq!(num_termini(&(999, 0, 3), seq, &enzyme_patt), 1);
+    }
+
+    #[test]
+    fn test_num_termini_counts_c_term() {
+        let seq = b"ABCDE";
+
+        // Match peptides ending before a Z
+        let enzyme_patt = Regex::new(r"(?=Z)").unwrap();
+
+        // Expect one match, from the peptide ending at the C-terminus
+        assert_eq!(num_termini(&(999, 1, 4), seq, &enzyme_patt), 1);
     }
 }
