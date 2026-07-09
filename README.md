@@ -8,12 +8,11 @@ It is designed for extreme speed and efficiency, using the *adaptive radix tree*
 ### As a Python library
 
 For ease of use, Preppers includes Python bindings which can be installed
-from AWS CodeArtifact.
+with `pip`:
 
 To install, run:
 
 ```shell
-aws codeartifact login --tool pip --repository seer_ds --domain seer --domain-owner 718843040700 --region us-west-2
 pip install preppers
 ```
 
@@ -79,4 +78,4 @@ pytest
 2. Commit the changes and push/merge to the `main` branch (this may require a PR).
 3. Create a new release in GitHub with the same version number using the format `vX.Y.Z`.
    Click "auto-generate release notes" to automatically document merged PRs.
-4. GitHub Actions will automatically build and publish the new version to CodeArtifact.
+4. GitHub Actions will automatically build and publish Python packages.
